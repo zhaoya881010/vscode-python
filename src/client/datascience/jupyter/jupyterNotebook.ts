@@ -26,8 +26,8 @@ import { CellMatcher } from '../cellMatcher';
 import { CodeSnippits, Identifiers, Telemetry } from '../constants';
 import {
     CellState,
-    ICell,
     IDataScienceFileSystem,
+    IExecuteResult,
     IJupyterKernelSpec,
     IJupyterSession,
     INotebook,
@@ -46,7 +46,7 @@ import { concatMultilineString, formatStreamText } from '../../../datascience-ui
 import { PYTHON_LANGUAGE } from '../../common/constants';
 import { RefBool } from '../../common/refBool';
 
-class CellSubscriber {
+class ExecutionSubscriber {
     public get startTime(): number {
         return this._startTime;
     }
@@ -59,19 +59,18 @@ class CellSubscriber {
         return this.deferred.promise;
     }
 
-    public get cell(): ICell {
-        return this.cellRef;
+    public get result(): IExecuteResult {
+        return this._result;
     }
     public executionState?: Kernel.Status;
     private deferred: Deferred<CellState> = createDeferred<CellState>();
-    private cellRef: ICell;
-    private subscriber: Subscriber<ICell>;
-    private promiseComplete: (self: CellSubscriber) => void;
+    private promiseComplete: (self: ExecutionSubscriber) => void;
     private canceledEvent: EventEmitter<void> = new EventEmitter<void>();
     private _startTime: number;
+    private _result: IExecuteResult;
 
-    constructor(cell: ICell, subscriber: Subscriber<ICell>, promiseComplete: (self: CellSubscriber) => void) {
-        this.cellRef = cell;
+    constructor(private subscriber: Subscriber<IExecuteResult>, promiseComplete: (self: ExecutionSubscriber) => void) {
+        this._result = { execution_count: 0, outputs: [], state: CellState.executing };
         this.subscriber = subscriber;
         this.promiseComplete = promiseComplete;
         this._startTime = Date.now();
@@ -84,7 +83,7 @@ class CellSubscriber {
     public next(sessionStartTime: number | undefined) {
         // Tell the subscriber first
         if (this.isValid(sessionStartTime)) {
-            this.subscriber.next(this.cellRef);
+            this.subscriber.next(this.result);
         }
     }
 
@@ -97,10 +96,10 @@ class CellSubscriber {
 
     public complete(sessionStartTime: number | undefined) {
         if (this.isValid(sessionStartTime)) {
-            if (this.cellRef.state !== CellState.error) {
-                this.cellRef.state = CellState.finished;
+            if (this.result.state !== CellState.error) {
+                this.result.state = CellState.finished;
             }
-            this.subscriber.next(this.cellRef);
+            this.subscriber.next(this.result);
         }
         this.subscriber.complete();
 
@@ -111,8 +110,8 @@ class CellSubscriber {
     // tslint:disable-next-line:no-any
     public reject(e: any) {
         if (!this.deferred.completed) {
-            this.cellRef.state = CellState.error;
-            this.subscriber.next(this.cellRef);
+            this.result.state = CellState.error;
+            this.subscriber.next(this.result);
             this.subscriber.complete();
             this.deferred.reject(e);
             this.promiseComplete(this);
@@ -122,8 +121,8 @@ class CellSubscriber {
     public cancel() {
         this.canceledEvent.fire();
         if (!this.deferred.completed) {
-            this.cellRef.state = CellState.error;
-            this.subscriber.next(this.cellRef);
+            this.result.state = CellState.error;
+            this.subscriber.next(this.result);
             this.subscriber.complete();
             this.deferred.resolve();
             this.promiseComplete(this);
@@ -133,9 +132,9 @@ class CellSubscriber {
     private attemptToFinish() {
         if (
             !this.deferred.completed &&
-            (this.cell.state === CellState.finished || this.cell.state === CellState.error)
+            (this.result.state === CellState.finished || this.result.state === CellState.error)
         ) {
-            this.deferred.resolve(this.cell.state);
+            this.deferred.resolve(this.result.state);
             this.promiseComplete(this);
         }
     }
@@ -146,7 +145,7 @@ class CellSubscriber {
 
 export class JupyterNotebookBase implements INotebook {
     private sessionStartTime: number;
-    private pendingCellSubscriptions: CellSubscriber[] = [];
+    private pendingExecutions: ExecutionSubscriber[] = [];
     private ranInitialSetup = false;
     private _resource: Resource;
     private _identity: Uri;
@@ -182,7 +181,6 @@ export class JupyterNotebookBase implements INotebook {
     }
 
     constructor(
-        _liveShare: ILiveShareApi, // This is so the liveshare mixin works
         private session: IJupyterSession,
         private configService: IConfigurationService,
         private disposableRegistry: IDisposableRegistry,
@@ -318,22 +316,20 @@ export class JupyterNotebookBase implements INotebook {
 
     public execute(
         code: string,
-        file: string,
-        line: number,
         id: string,
         cancelToken?: CancellationToken,
         silent?: boolean
-    ): Promise<ICell[]> {
+    ): Promise<IExecuteResult> {
         // Create a deferred that we'll fire when we're done
-        const deferred = createDeferred<ICell[]>();
+        const deferred = createDeferred<IExecuteResult>();
 
-        // Attempt to evaluate this cell in the jupyter notebook.
-        const observable = this.executeObservable(code, file, line, id, silent);
-        let output: ICell[];
+        // Attempt to evaluate this code in the jupyter notebook.
+        const observable = this.executeObservable(code, id, silent);
+        let output: IExecuteResult;
 
         observable.subscribe(
-            (cells: ICell[]) => {
-                output = cells;
+            (result: IExecuteResult) => {
+                output = result;
             },
             (error) => {
                 deferred.reject(error);
@@ -392,20 +388,14 @@ export class JupyterNotebookBase implements INotebook {
         return this.updateWorkingDirectoryAndPath(file);
     }
 
-    public executeObservable(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        silent: boolean = false
-    ): Observable<ICell[]> {
+    public executeObservable(code: string, id: string, silent: boolean = false): Observable<IExecuteResult> {
         // Create an observable and wrap the result so we can time it.
         const stopWatch = new StopWatch();
-        const result = this.executeObservableImpl(code, file, line, id, silent);
-        return new Observable<ICell[]>((subscriber) => {
+        const result = this.executeObservableImpl(code, id, silent);
+        return new Observable<IExecuteResult>((subscriber) => {
             result.subscribe(
-                (cells) => {
-                    subscriber.next(cells);
+                (output) => {
+                    subscriber.next(output);
                 },
                 (error) => {
                     subscriber.error(error);
@@ -418,7 +408,7 @@ export class JupyterNotebookBase implements INotebook {
         });
     }
 
-    public async getSysInfo(): Promise<ICell> {
+    public async getSysInfo(): Promise<string[]> {
         // tslint:disable-next-line:no-multiline-string
         const versionCells = await this.executeSilently(`import sys\r\nsys.version`);
         // tslint:disable-next-line:no-multiline-string
@@ -433,18 +423,7 @@ export class JupyterNotebookBase implements INotebook {
         const pythonPath = versionCells.length > 0 ? this.extractStreamOutput(pathCells[0]).trimQuotes() : '';
 
         // Combine this data together to make our sys info
-        return {
-            data: {
-                cell_type: 'messages',
-                messages: [version, notebookVersion, pythonPath],
-                metadata: {},
-                source: []
-            },
-            id: uuid(),
-            file: '',
-            line: 0,
-            state: CellState.finished
-        };
+        return [version, notebookVersion, pythonPath];
     }
 
     @captureTelemetry(Telemetry.RestartJupyterTime)
@@ -486,8 +465,7 @@ export class JupyterNotebookBase implements INotebook {
 
             // Get just the first pending cell (it should be the oldest). If it doesn't finish
             // by our timeout, then our interrupt didn't work.
-            const firstPending =
-                this.pendingCellSubscriptions.length > 0 ? this.pendingCellSubscriptions[0] : undefined;
+            const firstPending = this.pendingExecutions.length > 0 ? this.pendingExecutions[0] : undefined;
 
             // Create a promise that resolves when the first pending cell finishes
             const finished = firstPending ? firstPending.promise : Promise.resolve(CellState.finished);
@@ -750,23 +728,23 @@ export class JupyterNotebookBase implements INotebook {
     }
 
     private finishUncompletedCells() {
-        const copyPending = [...this.pendingCellSubscriptions];
+        const copyPending = [...this.pendingExecutions];
         copyPending.forEach((c) => c.cancel());
-        this.pendingCellSubscriptions = [];
+        this.pendingExecutions = [];
     }
 
     @captureTelemetry(Telemetry.HiddenCellTime)
-    private executeSilently(code: string, cancelToken?: CancellationToken): Promise<ICell[]> {
+    private executeSilently(code: string, cancelToken?: CancellationToken): Promise<IExecuteResult> {
         // Create a deferred that we'll fire when we're done
-        const deferred = createDeferred<ICell[]>();
+        const deferred = createDeferred<IExecuteResult>();
 
         // Attempt to evaluate this cell in the jupyter notebook
-        const observable = this.executeObservableImpl(code, Identifiers.EmptyFileName, 0, uuid(), true);
-        let output: ICell[];
+        const observable = this.executeObservableImpl(code, uuid(), true);
+        let output: IExecuteResult;
 
         observable.subscribe(
-            (cells: ICell[]) => {
-                output = cells;
+            (result: IExecuteResult) => {
+                output = result;
             },
             (error) => {
                 deferred.reject(error);
@@ -786,70 +764,51 @@ export class JupyterNotebookBase implements INotebook {
         return deferred.promise;
     }
 
-    private extractStreamOutput(cell: ICell): string {
-        let result = '';
-        if (cell.state === CellState.error || cell.state === CellState.finished) {
-            const outputs = cell.data.outputs as nbformat.IOutput[];
+    private extractStreamOutput(result: IExecuteResult): string {
+        let output = '';
+        if (result.state === CellState.error || result.state === CellState.finished) {
+            const outputs = result.outputs as nbformat.IOutput[];
             if (outputs) {
                 outputs.forEach((o) => {
                     if (o.output_type === 'stream') {
                         const stream = o as nbformat.IStream;
-                        result = result.concat(formatStreamText(concatMultilineString(stream.text, true)));
+                        output = output.concat(formatStreamText(concatMultilineString(stream.text, true)));
                     } else {
                         const data = o.data;
                         if (data && data.hasOwnProperty('text/plain')) {
                             // tslint:disable-next-line:no-any
-                            result = result.concat((data as any)['text/plain']);
+                            output = output.concat((data as any)['text/plain']);
                         }
                     }
                 });
             }
         }
-        return result;
+        return output;
     }
 
-    private executeObservableImpl(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        silent?: boolean
-    ): Observable<ICell[]> {
-        // If we have a session, execute the code now.
-        if (this.session) {
-            // Generate our cells ahead of time
-            const cells = generateCells(
-                this.configService.getSettings(this.resource).datascience,
-                code,
-                file,
-                line,
-                true,
-                id
-            );
+    private executeObservableImpl(code: string, id: string, silent?: boolean): Observable<IExecuteResult> {
+        return new Observable<IExecuteResult>((subscriber) => {
+            // Wrap the subscriber and save it. It is now pending and waiting completion. Have to do this
+            // synchronously so it happens before interruptions.
+            const execution = new ExecutionSubscriber(subscriber, (self: ExecutionSubscriber) => {
+                // Subscriber completed, remove from subscriptions.
+                this.pendingExecutions = this.pendingExecutions.filter((p) => p !== self);
 
-            // Might have more than one (markdown might be split)
-            if (cells.length > 1) {
-                // We need to combine results
-                return this.combineObservables(
-                    this.executeMarkdownObservable(cells[0]),
-                    this.executeCodeObservable(cells[1], silent)
-                );
-            } else if (cells.length > 0) {
-                // Either markdown or or code
-                return this.combineObservables(
-                    cells[0].data.cell_type === 'code'
-                        ? this.executeCodeObservable(cells[0], silent)
-                        : this.executeMarkdownObservable(cells[0])
-                );
-            }
-        }
+                // Indicate success or failure
+                this.logPostCode(code, id, self.result, silent ?? false).ignoreErrors();
+            });
+            this.pendingExecutions.push(execution);
 
-        traceError('No session during execute observable');
+            // Start the first response
+            subscriber.next(execution.result);
 
-        // Can't run because no session
-        return new Observable<ICell[]>((subscriber) => {
-            subscriber.error(this.getDisposedError());
-            subscriber.complete();
+            // Log the pre execution.
+            this.logPreCode(code, id, silent ?? false)
+                .then(() => {
+                    // Now send our real request. This should call back on the cellsubscriber when it's done.
+                    this.handleCodeRequest(execution, silent);
+                })
+                .ignoreErrors();
         });
     }
 
@@ -916,14 +875,6 @@ export class JupyterNotebookBase implements INotebook {
         });
     };
 
-    private executeMarkdownObservable = (cell: ICell): Observable<ICell> => {
-        // Markdown doesn't need any execution
-        return new Observable<ICell>((subscriber) => {
-            subscriber.next(cell);
-            subscriber.complete();
-        });
-    };
-
     private async updateWorkingDirectoryAndPath(launchingFile?: string): Promise<void> {
         if (this._executionInfo && this._executionInfo.connectionInfo.localLaunch && !this._workingDirectory) {
             // See what our working dir is supposed to be
@@ -959,7 +910,7 @@ export class JupyterNotebookBase implements INotebook {
     };
 
     private handleIOPub(
-        subscriber: CellSubscriber,
+        subscriber: ExecutionSubscriber,
         silent: boolean | undefined,
         clearState: RefBool,
         msg: KernelMessage.IIOPubMessage
@@ -1045,7 +996,7 @@ export class JupyterNotebookBase implements INotebook {
         return undefined;
     }
 
-    private handleInputRequest(_subscriber: CellSubscriber, msg: KernelMessage.IStdinMessage) {
+    private handleInputRequest(_subscriber: ExecutionSubscriber, msg: KernelMessage.IStdinMessage) {
         // Ask the user for input
         if (msg.content && 'prompt' in msg.content) {
             const hasPassword = msg.content.password !== null && (msg.content.password as boolean);
@@ -1062,7 +1013,7 @@ export class JupyterNotebookBase implements INotebook {
     }
 
     private handleReply(
-        subscriber: CellSubscriber,
+        subscriber: ExecutionSubscriber,
         silent: boolean | undefined,
         clearState: RefBool,
         msg: KernelMessage.IShellControlMessage
@@ -1087,7 +1038,7 @@ export class JupyterNotebookBase implements INotebook {
     }
 
     // tslint:disable-next-line: max-func-body-length
-    private handleCodeRequest = (subscriber: CellSubscriber, silent?: boolean) => {
+    private handleCodeRequest = (subscriber: ExecutionSubscriber, silent?: boolean) => {
         // Generate a new request if we still can
         if (subscriber.isValid(this.sessionStartTime)) {
             // Double check process is still running
@@ -1184,14 +1135,14 @@ export class JupyterNotebookBase implements INotebook {
 
             // Wrap the subscriber and save it. It is now pending and waiting completion. Have to do this
             // synchronously so it happens before interruptions.
-            const cellSubscriber = new CellSubscriber(cell, subscriber, (self: CellSubscriber) => {
+            const cellSubscriber = new ExecutionSubscriber(cell, subscriber, (self: ExecutionSubscriber) => {
                 // Subscriber completed, remove from subscriptions.
-                this.pendingCellSubscriptions = this.pendingCellSubscriptions.filter((p) => p !== self);
+                this.pendingExecutions = this.pendingExecutions.filter((p) => p !== self);
 
                 // Indicate success or failure
                 this.logPostCode(cell, isSilent).ignoreErrors();
             });
-            this.pendingCellSubscriptions.push(cellSubscriber);
+            this.pendingExecutions.push(cellSubscriber);
 
             // Log the pre execution.
             this.logPreCode(cell, isSilent)
@@ -1203,16 +1154,16 @@ export class JupyterNotebookBase implements INotebook {
         });
     }
 
-    private async logPreCode(cell: ICell, silent: boolean): Promise<void> {
-        await Promise.all(this.loggers.map((l) => l.preExecute(cell, silent)));
+    private async logPreCode(code: string, id: string, silent: boolean): Promise<void> {
+        await Promise.all(this.loggers.map((l) => l.preExecute(code, id, silent)));
     }
 
-    private async logPostCode(cell: ICell, silent: boolean): Promise<void> {
-        await Promise.all(this.loggers.map((l) => l.postExecute(cloneDeep(cell), silent)));
+    private async logPostCode(code: string, id: string, result: IExecuteResult, silent: boolean): Promise<void> {
+        await Promise.all(this.loggers.map((l) => l.postExecute(code, id, cloneDeep(result), silent)));
     }
 
-    private addToCellData = (
-        cell: ICell,
+    private addToResult = (
+        result: IExecuteResult,
         output:
             | nbformat.IUnrecognizedOutput
             | nbformat.IExecuteResult
@@ -1221,17 +1172,14 @@ export class JupyterNotebookBase implements INotebook {
             | nbformat.IError,
         clearState: RefBool
     ) => {
-        const data: nbformat.ICodeCell = cell.data as nbformat.ICodeCell;
-
         // Clear if necessary
         if (clearState.value) {
-            data.outputs = [];
+            result.outputs = [];
             clearState.update(false);
         }
 
         // Append to the data.
-        data.outputs = [...data.outputs, output];
-        cell.data = data;
+        result.outputs = [...result.outputs, output];
     };
 
     // See this for docs on the messages:
@@ -1239,7 +1187,7 @@ export class JupyterNotebookBase implements INotebook {
     private handleExecuteResult(
         msg: KernelMessage.IExecuteResultMsg,
         clearState: RefBool,
-        cell: ICell,
+        result: IExecuteResult,
         trimFunc: (str: string) => string
     ) {
         // Check our length on text output
@@ -1247,8 +1195,8 @@ export class JupyterNotebookBase implements INotebook {
             msg.content.data['text/plain'] = trimFunc(msg.content.data['text/plain'] as string);
         }
 
-        this.addToCellData(
-            cell,
+        this.addToResult(
+            result,
             {
                 output_type: 'execute_result',
                 data: msg.content.data,
@@ -1264,7 +1212,7 @@ export class JupyterNotebookBase implements INotebook {
     private handleExecuteReply(
         msg: KernelMessage.IExecuteReplyMsg,
         clearState: RefBool,
-        cell: ICell,
+        result: IExecuteResult,
         trimFunc: (str: string) => string
     ) {
         const reply = msg.content as KernelMessage.IExecuteReply;
@@ -1274,8 +1222,8 @@ export class JupyterNotebookBase implements INotebook {
                     // tslint:disable-next-line: no-any
                     const str = (o.data as any)['text/plain'].toString();
                     const data = trimFunc(str) as string;
-                    this.addToCellData(
-                        cell,
+                    this.addToResult(
+                        result,
                         {
                             // Mark as stream output so the text is formatted because it likely has ansi codes in it.
                             output_type: 'stream',
@@ -1290,34 +1238,33 @@ export class JupyterNotebookBase implements INotebook {
         }
     }
 
-    private handleExecuteInput(msg: KernelMessage.IExecuteInputMsg, _clearState: RefBool, cell: ICell) {
-        cell.data.execution_count = msg.content.execution_count;
+    private handleExecuteInput(msg: KernelMessage.IExecuteInputMsg, _clearState: RefBool, result: IExecuteResult) {
+        result.execution_count = msg.content.execution_count;
     }
 
-    private handleStatusMessage(msg: KernelMessage.IStatusMsg, _clearState: RefBool, _cell: ICell) {
+    private handleStatusMessage(msg: KernelMessage.IStatusMsg, _clearState: RefBool, _result: IExecuteResult) {
         traceInfo(`Kernel switching to ${msg.content.execution_state}`);
     }
 
     private handleStreamMesssage(
         msg: KernelMessage.IStreamMsg,
         clearState: RefBool,
-        cell: ICell,
+        result: IExecuteResult,
         trimFunc: (str: string) => string
     ) {
-        const data: nbformat.ICodeCell = cell.data as nbformat.ICodeCell;
         let originalTextLength = 0;
         let trimmedTextLength = 0;
 
         // Clear output if waiting for a clear
         if (clearState.value) {
-            data.outputs = [];
+            result.outputs = [];
             clearState.update(false);
         }
 
         // Might already have a stream message. If so, just add on to it.
         const existing =
-            data.outputs.length > 0 && data.outputs[data.outputs.length - 1].output_type === 'stream'
-                ? data.outputs[data.outputs.length - 1]
+            result.outputs.length > 0 && result.outputs[result.outputs.length - 1].output_type === 'stream'
+                ? result.outputs[result.outputs.length - 1]
                 : undefined;
         if (existing) {
             // tslint:disable-next-line:restrict-plus-operands
@@ -1335,9 +1282,8 @@ export class JupyterNotebookBase implements INotebook {
                 name: msg.content.name,
                 text: trimFunc(originalText)
             };
-            data.outputs = [...data.outputs, output];
+            result.outputs = [...result.outputs, output];
             trimmedTextLength = output.text.length;
-            cell.data = data;
         }
 
         // If the output was trimmed, we add the 'outputPrepend' metadata tag.
@@ -1345,18 +1291,18 @@ export class JupyterNotebookBase implements INotebook {
         // the output is trimmed and what setting changes that.
         // * If data.metadata.tags is undefined, define it so the following
         //   code is can rely on it being defined.
-        if (data.metadata.tags === undefined) {
-            data.metadata.tags = [];
+        if (result.metadata.tags === undefined) {
+            result.metadata.tags = [];
         }
 
-        data.metadata.tags = data.metadata.tags.filter((t) => t !== 'outputPrepend');
+        result.metadata.tags = result.metadata.tags.filter((t) => t !== 'outputPrepend');
 
         if (trimmedTextLength < originalTextLength) {
-            data.metadata.tags.push('outputPrepend');
+            result.metadata.tags.push('outputPrepend');
         }
     }
 
-    private handleDisplayData(msg: KernelMessage.IDisplayDataMsg, clearState: RefBool, cell: ICell) {
+    private handleDisplayData(msg: KernelMessage.IDisplayDataMsg, clearState: RefBool, result: IExecuteResult) {
         const output: nbformat.IDisplayData = {
             output_type: 'display_data',
             data: msg.content.data,
@@ -1364,22 +1310,21 @@ export class JupyterNotebookBase implements INotebook {
             // tslint:disable-next-line: no-any
             transient: msg.content.transient as any // NOSONAR
         };
-        this.addToCellData(cell, output, clearState);
+        this.addToResult(result, output, clearState);
     }
 
-    private handleClearOutput(msg: KernelMessage.IClearOutputMsg, clearState: RefBool, cell: ICell) {
+    private handleClearOutput(msg: KernelMessage.IClearOutputMsg, clearState: RefBool, result: IExecuteResult) {
         // If the message says wait, add every message type to our clear state. This will
         // make us wait for this type of output before we clear it.
         if (msg && msg.content.wait) {
             clearState.update(true);
         } else {
             // Clear all outputs and start over again.
-            const data: nbformat.ICodeCell = cell.data as nbformat.ICodeCell;
-            data.outputs = [];
+            result.outputs = [];
         }
     }
 
-    private handleInterrupted(cell: ICell) {
+    private handleInterrupted(result: IExecuteResult) {
         this.handleError(
             {
                 channel: 'iopub',
@@ -1397,24 +1342,24 @@ export class JupyterNotebookBase implements INotebook {
                 }
             },
             new RefBool(false),
-            cell
+            result
         );
     }
 
-    private handleError(msg: KernelMessage.IErrorMsg, clearState: RefBool, cell: ICell) {
+    private handleError(msg: KernelMessage.IErrorMsg, clearState: RefBool, result: IExecuteResult) {
         const output: nbformat.IError = {
             output_type: 'error',
             ename: msg.content.ename,
             evalue: msg.content.evalue,
             traceback: msg.content.traceback
         };
-        this.addToCellData(cell, output, clearState);
-        cell.state = CellState.error;
+        this.addToResult(result, output, clearState);
+        result.state = CellState.error;
 
-        // In the error scenario, we want to stop all other pending cells.
+        // In the error scenario, we want to stop all other pending executions.
         if (this.configService.getSettings(this.resource).datascience.stopOnError) {
-            this.pendingCellSubscriptions.forEach((c) => {
-                if (c.cell.id !== cell.id) {
+            this.pendingExecutions.forEach((c) => {
+                if (c.result.id !== result.id) {
                     c.cancel();
                 }
             });

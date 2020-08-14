@@ -191,15 +191,8 @@ export interface INotebook extends IAsyncDisposable {
     onKernelRestarted: Event<void>;
     onKernelInterrupted: Event<void>;
     clear(id: string): void;
-    executeObservable(code: string, file: string, line: number, id: string, silent: boolean): Observable<ICell[]>;
-    execute(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        cancelToken?: CancellationToken,
-        silent?: boolean
-    ): Promise<ICell[]>;
+    executeObservable(code: string, id: string, silent: boolean): Observable<IExecuteResult>;
+    execute(code: string, id: string, cancelToken?: CancellationToken, silent?: boolean): Promise<IExecuteResult>;
     inspect(code: string, offsetInCode?: number, cancelToken?: CancellationToken): Promise<JSONObject>;
     getCompletion(
         cellCode: string,
@@ -210,7 +203,7 @@ export interface INotebook extends IAsyncDisposable {
     waitForIdle(timeoutInMs: number): Promise<void>;
     interruptKernel(timeoutInMs: number): Promise<InterruptResult>;
     setLaunchingFile(file: string): Promise<void>;
-    getSysInfo(): Promise<ICell | undefined>;
+    getSysInfo(): Promise<IExecuteResult | undefined>;
     setMatplotLibStyle(useDark: boolean): Promise<void>;
     getMatchingInterpreter(): PythonEnvironment | undefined;
     getKernelSpec(): IJupyterKernelSpec | LiveKernelModel | undefined;
@@ -267,8 +260,8 @@ export interface INotebookServerOptions {
 
 export const INotebookExecutionLogger = Symbol('INotebookExecutionLogger');
 export interface INotebookExecutionLogger extends IDisposable {
-    preExecute(cell: ICell, silent: boolean): Promise<void>;
-    postExecute(cell: ICell, silent: boolean): Promise<void>;
+    preExecute(code: string, id: string, silent: boolean): Promise<void>;
+    postExecute(code: string, id: string, result: IExecuteResult, silent: boolean): Promise<void>;
     onKernelRestarted(): void;
     preHandleIOPub?(msg: KernelMessage.IIOPubMessage): KernelMessage.IIOPubMessage;
 }
@@ -709,6 +702,14 @@ export interface ICell {
     state: CellState;
     data: nbformat.ICodeCell | nbformat.IRawCell | nbformat.IMarkdownCell | IMessageCell;
     extraLines?: number[];
+}
+
+export interface IExecuteResult {
+    readonly id: string; // Unique identifier for an execution (not the cell id)
+    state: CellState;
+    execution_count: number | null;
+    outputs: nbformat.IOutput[];
+    metadata: Partial<nbformat.ICodeCellMetadata>;
 }
 
 // CellRange is used as the basis for creating new ICells.
