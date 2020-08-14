@@ -37,6 +37,7 @@ import { EXTENSION_ROOT_DIR, isTestExecution, PYTHON_LANGUAGE } from '../../comm
 import { RemoveKernelToolbarInInteractiveWindow, RunByLine } from '../../common/experiments/groups';
 import { traceError, traceInfo, traceWarning } from '../../common/logger';
 
+import { concatMultilineString } from '../../../datascience-ui/common';
 import {
     IConfigurationService,
     IDisposableRegistry,
@@ -90,7 +91,6 @@ import {
     IJupyterVariables,
     IJupyterVariablesRequest,
     IJupyterVariablesResponse,
-    IMessageCell,
     INotebook,
     INotebookExporter,
     INotebookMetadataLive,
@@ -654,20 +654,21 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
                     });
                 }
                 const owningResource = this.owningResource;
-                let { markdownCell, splitCode } = this.splitCode(code);
+                // tslint:disable-next-line: prefer-const
+                let { markdownCell, codeCell } = this.splitCode(code, id);
 
                 // If we have split code that means this is a code cell
-                if (splitCode) {
-                    const observable = this._notebook.executeObservable({ code: splitCode, file, line, id });
+                if (codeCell) {
+                    const observable = this._notebook.executeObservable({ code: codeCell, file, line, id });
 
                     // Indicate we executed some code
-                    this.executeEvent.fire(splitCode);
+                    this.executeEvent.fire(codeCell);
 
                     // Sign up for changes
                     observable.subscribe(
                         (executeResult: IExecuteResult) => {
                             // Combine the cell data with the possible input data (so we don't lose anything that might have already been in the cells)
-                            const combined = this.combineData(data, executeResult);
+                            const combined = this.combineData(codeCell, id!, file, line, data, executeResult);
 
                             // Then send the combined output to the UI
                             this.sendCellsToWebView(markdownCell ? [markdownCell, combined] : [combined]);
@@ -879,21 +880,73 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
         }
     }
 
-    private splitCode(code: string): { markdownCell: nbformat.IMarkdownCell | undefined; code: string } {}
+    private splitCode(code: string, id: string): { markdownCell: ICell | undefined; codeCell: string } {
+        const cells = generateCells(
+            this.configService.getSettings(this.owningResource).datascience,
+            code,
+            Identifiers.EmptyFileName,
+            0,
+            true,
+            id
+        );
+        if (cells.length > 1) {
+            return {
+                markdownCell: cells[0],
+                codeCell: concatMultilineString(cells[1].data.source)
+            };
+        } else {
+            return {
+                markdownCell: undefined,
+                codeCell: concatMultilineString(cells[0].data.source)
+            };
+        }
+    }
 
     private combineData(
+        code: string,
+        id: string,
+        file: string,
+        line: number,
         oldData: nbformat.ICodeCell | nbformat.IRawCell | nbformat.IMarkdownCell | undefined,
         executeResult: IExecuteResult
     ): ICell {
         if (oldData) {
             const oldTags = oldData.metadata.tags || [];
-            const result = {
-                ...cell,
+            const result: ICell = {
+                id,
+                file,
+                line,
+                state: executeResult.state,
                 data: {
                     ...oldData,
+                    source: code,
+                    execution_count: executeResult.execution_count,
+                    outputs: executeResult.outputs,
                     metadata: {
                         ...oldData.metadata,
-                        tags: executeResult.trimmedOutput && !oldTags.find('outputPrepend')
+                        tags:
+                            executeResult.trimmedOutput && !oldTags.find((t) => t === Identifiers.OUTPUT_PREPEND_TAG)
+                                ? [Identifiers.OUTPUT_PREPEND_TAG, ...oldTags]
+                                : oldTags
+                    }
+                }
+            };
+            // Workaround the nyc compiler problem.
+            // tslint:disable-next-line: no-any
+            return (result as any) as ICell;
+        } else {
+            const result: ICell = {
+                id,
+                file,
+                line,
+                state: executeResult.state,
+                data: {
+                    cell_type: 'code',
+                    source: code,
+                    execution_count: executeResult.execution_count,
+                    outputs: executeResult.outputs,
+                    metadata: {
+                        tags: executeResult.trimmedOutput ? [Identifiers.OUTPUT_PREPEND_TAG] : []
                     }
                 }
             };
@@ -901,8 +954,6 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
             // tslint:disable-next-line: no-any
             return (result as any) as ICell;
         }
-        // tslint:disable-next-line: no-any
-        return (cell as any) as ICell;
     }
 
     private async ensureConnectionAndNotebookImpl(): Promise<void> {
@@ -1345,7 +1396,7 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
         }
     }
 
-    private generateSysInfoCell = async (reason: SysInfoReason): Promise<ICell | undefined> => {
+    private async generateSysInfo(reason: SysInfoReason): Promise<string[]> {
         // Execute the code 'import sys\r\nsys.version' and 'import sys\r\nsys.executable' to get our
         // version and executable
         if (this._notebook) {
@@ -1353,7 +1404,7 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
 
             // The server handles getting this data.
             const sysInfo = await this._notebook.getSysInfo();
-            if (sysInfo) {
+            if (sysInfo && sysInfo.length) {
                 // Connection string only for our initial start, not restart or interrupt
                 let connectionString: string = '';
                 if (reason === SysInfoReason.Start) {
@@ -1361,18 +1412,33 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
                 }
 
                 // Update our sys info with our locally applied data.
-                const cell = sysInfo.data as IMessageCell;
-                if (cell) {
-                    cell.messages.unshift(message);
-                    if (connectionString && connectionString.length) {
-                        cell.messages.unshift(connectionString);
-                    }
+                sysInfo.unshift(message);
+                if (connectionString && connectionString.length) {
+                    sysInfo.unshift(connectionString);
                 }
-
                 return sysInfo;
             }
         }
-    };
+        return [];
+    }
+
+    private async generateSysInfoCell(reason: SysInfoReason): Promise<ICell | undefined> {
+        const messages = await this.generateSysInfo(reason);
+        if (messages && messages.length) {
+            return {
+                id: uuid(),
+                file: Identifiers.EmptyFileName,
+                line: 0,
+                state: CellState.finished,
+                data: {
+                    source: messages,
+                    cell_type: 'messages',
+                    messages,
+                    metadata: {}
+                }
+            };
+        }
+    }
 
     private async generateSysInfoMessage(reason: SysInfoReason): Promise<string> {
         switch (reason) {

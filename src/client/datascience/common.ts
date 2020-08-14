@@ -10,7 +10,7 @@ import { IPythonExecutionFactory } from '../common/process/types';
 import { DataScience } from '../common/utils/localize';
 import { noop } from '../common/utils/misc';
 import { Settings } from './constants';
-import { ICell, IDataScienceFileSystem } from './types';
+import { ICell, IDataScienceFileSystem, IExecuteResult } from './types';
 
 // Can't figure out a better way to do this. Enumerate
 // the allowed keys of different output formats.
@@ -104,23 +104,20 @@ export function pruneCell(cell: nbformat.ICell): nbformat.ICell {
     return result;
 }
 
-export function traceCellResults(prefix: string, results: ICell[]) {
-    if (results.length > 0 && results[0].data.cell_type === 'code') {
-        const cell = results[0].data as nbformat.ICodeCell;
-        const error = cell.outputs && cell.outputs[0] ? cell.outputs[0].evalue : undefined;
-        if (error) {
-            traceError(`${prefix} Error : ${error}`);
-        } else if (cell.outputs && cell.outputs[0]) {
-            if (cell.outputs[0].output_type.includes('image')) {
-                traceInfo(`${prefix} Output: image`);
-            } else {
-                const data = cell.outputs[0].data;
-                const text = cell.outputs[0].text;
-                traceInfo(`${prefix} Output: ${text || JSON.stringify(data)}`);
-            }
+export function traceExecuteResults(prefix: string, results: IExecuteResult) {
+    const error = results.outputs && results.outputs[0] ? results.outputs[0].evalue : undefined;
+    if (error) {
+        traceError(`${prefix} Error : ${error}`);
+    } else if (results.outputs && results.outputs[0]) {
+        if (results.outputs[0].output_type.includes('image')) {
+            traceInfo(`${prefix} Output: image`);
+        } else {
+            const data = results.outputs[0].data;
+            const text = results.outputs[0].text;
+            traceInfo(`${prefix} Output: ${text || JSON.stringify(data)}`);
         }
     } else {
-        traceInfo(`${prefix} no output.`);
+        traceInfo(`${prefix} No Output.`);
     }
 }
 

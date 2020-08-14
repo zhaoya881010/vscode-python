@@ -16,12 +16,13 @@ import { IConfigurationService, Version } from '../../common/types';
 import * as localize from '../../common/utils/localize';
 import { EXTENSION_ROOT_DIR } from '../../constants';
 import { captureTelemetry, sendTelemetryEvent } from '../../telemetry';
-import { traceCellResults } from '../common';
+import { traceExecuteResults } from '../common';
 import { Identifiers, Telemetry } from '../constants';
 import {
     CellState,
     ICell,
     ICellHashListener,
+    IExecuteResult,
     IFileHashes,
     IJupyterConnection,
     IJupyterDebugger,
@@ -158,10 +159,10 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
 
             // Wait for attach before we turn on tracing and allow the code to run, if the IDE is already attached this is just a no-op
             const importResults = await this.executeSilently(notebook, this.waitForDebugClientCode);
-            if (importResults.length === 0 || importResults[0].state === CellState.error) {
+            if (importResults.state === CellState.error) {
                 traceWarning(`${this.debuggerPackage} not found in path.`);
             } else {
-                traceCellResults('import startup', importResults);
+                traceExecuteResults('import startup', importResults);
             }
 
             // Then enable tracing
@@ -298,7 +299,7 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
                 notebook,
                 `import sys\r\nsys.path.extend([${debuggerPathList}])\r\nsys.path`
             );
-            traceCellResults('Appending paths', result);
+            traceExecuteResults('Appending paths', result);
         }
     }
 
@@ -317,8 +318,8 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
         return sourceMapRequest;
     }
 
-    private executeSilently(notebook: INotebook, code: string): Promise<ICell[]> {
-        return notebook.execute(code, Identifiers.EmptyFileName, 0, uuid(), undefined, true);
+    private executeSilently(notebook: INotebook, code: string): Promise<IExecuteResult> {
+        return notebook.execute({ code, id: uuid(), silent: true });
     }
 
     private async debuggerCheck(notebook: INotebook): Promise<Version | undefined> {
@@ -341,17 +342,15 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
     }
 
     private parseVersionInfo(
-        cells: ICell[],
+        results: IExecuteResult,
         purpose: 'parseDebugpyVersionInfo' | 'pythonVersionInfo'
     ): Version | undefined {
-        if (cells.length < 1 || cells[0].state !== CellState.finished) {
-            traceCellResults(purpose, cells);
+        if (results.state !== CellState.finished) {
+            traceExecuteResults(purpose, results);
             return undefined;
         }
 
-        const targetCell = cells[0];
-
-        const outputString = this.extractOutput(targetCell);
+        const outputString = this.extractOutput(results);
 
         if (outputString) {
             // Pull out the version number, note that we can't use SemVer here as python packages don't follow it
@@ -373,7 +372,7 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
             }
         }
 
-        traceCellResults(purpose, cells);
+        traceExecuteResults(purpose, results);
 
         return undefined;
     }
@@ -419,8 +418,8 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
         );
         traceInfo(`Installing ${this.debuggerPackage}`);
 
-        if (debuggerInstallResults.length > 0) {
-            const installResultsString = this.extractOutput(debuggerInstallResults[0]);
+        if (debuggerInstallResults.state === CellState.finished) {
+            const installResultsString = this.extractOutput(debuggerInstallResults);
 
             if (installResultsString && installResultsString.includes('Successfully installed')) {
                 sendTelemetryEvent(Telemetry.DebugpySuccessfullyInstalled);
@@ -428,7 +427,7 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
                 return;
             }
         }
-        traceCellResults(`Installing ${this.debuggerPackage}`, debuggerInstallResults);
+        traceExecuteResults(`Installing ${this.debuggerPackage}`, debuggerInstallResults);
         sendTelemetryEvent(Telemetry.DebugpyInstallFailed);
         traceError(`Failed to install ${this.debuggerPackage}`);
         // Failed to install debugger, throw to exit debugging
@@ -436,9 +435,9 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
     }
 
     // Pull our connection info out from the cells returned by enable_attach
-    private parseConnectInfo(cells: ICell[]): { port: number; host: string } {
-        if (cells.length > 0) {
-            let enableAttachString = this.extractOutput(cells[0]);
+    private parseConnectInfo(result: IExecuteResult): { port: number; host: string } {
+        if (result.state === CellState.finished) {
+            let enableAttachString = this.extractOutput(result);
             if (enableAttachString) {
                 enableAttachString = enableAttachString.trimQuotes();
 
@@ -455,8 +454,8 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
             }
         }
         // if we cannot parse the connect information, throw so we exit out of debugging
-        if (cells[0]?.data) {
-            const outputs = cells[0].data.outputs as nbformat.IOutput[];
+        if (result.outputs) {
+            const outputs = result.outputs as nbformat.IOutput[];
             if (outputs[0]) {
                 const error = outputs[0] as nbformat.IError;
                 throw new JupyterDebuggerNotInstalledError(this.debuggerPackage, error.ename);
@@ -467,9 +466,9 @@ export class JupyterDebugger implements IJupyterDebugger, ICellHashListener {
         );
     }
 
-    private extractOutput(cell: ICell): string | undefined {
-        if (cell.state === CellState.error || cell.state === CellState.finished) {
-            const outputs = cell.data.outputs as nbformat.IOutput[];
+    private extractOutput(results: IExecuteResult): string | undefined {
+        if (results.state === CellState.error || results.state === CellState.finished) {
+            const outputs = results.outputs as nbformat.IOutput[];
             if (outputs.length > 0) {
                 const data = outputs[0].data;
                 if (data && data.hasOwnProperty('text/plain')) {

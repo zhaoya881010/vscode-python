@@ -7,6 +7,7 @@ import { inject, injectable } from 'inversify';
 import * as uuid from 'uuid/v4';
 import { Range, TextDocument, Uri } from 'vscode';
 import { CancellationToken, CancellationTokenSource } from 'vscode-jsonrpc';
+import { concatMultilineString } from '../../../datascience-ui/common';
 import { IApplicationShell, ICommandManager, IDocumentManager } from '../../common/application/types';
 import { CancellationError } from '../../common/cancellation';
 import { PYTHON_LANGUAGE } from '../../common/constants';
@@ -15,12 +16,13 @@ import { IConfigurationService, IDisposableRegistry } from '../../common/types';
 import * as localize from '../../common/utils/localize';
 import { captureTelemetry } from '../../telemetry';
 import { CommandSource } from '../../testing/common/constants';
-import { generateCellRangesFromDocument, generateCellsFromDocument } from '../cellFactory';
+import { generateCellRangesFromDocument, generateCells, generateCellsFromDocument } from '../cellFactory';
 import { Commands, Telemetry } from '../constants';
 import { ExportFormat, IExportManager } from '../export/types';
 import { JupyterInstallError } from '../jupyter/jupyterInstallError';
 import { INotebookStorageProvider } from '../notebookStorage/notebookStorageProvider';
 import {
+    ICell,
     IDataScienceCommandListener,
     IDataScienceErrorHandler,
     IDataScienceFileSystem,
@@ -330,15 +332,38 @@ export class InteractiveWindowCommandListener implements IDataScienceCommandList
             // Create a new notebook
             notebook = await this.notebookProvider.getOrCreateNotebook({ identity: createExportInteractiveIdentity() });
             // If that works, then execute all of the cells.
-            const cells = Array.prototype.concat(
-                ...(await Promise.all(
-                    ranges.map((r) => {
-                        const code = document.getText(r.range);
-                        return notebook
-                            ? notebook.execute(code, document.fileName, r.range.start.line, uuid(), cancelToken)
-                            : [];
-                    })
-                ))
+            const cells = await Promise.all(
+                ranges.flatMap((r) => {
+                    const rangeCells = generateCells(
+                        settings.datascience,
+                        document.getText(r.range),
+                        document.fileName,
+                        r.range.start.line,
+                        true,
+                        uuid()
+                    );
+                    return rangeCells.map(
+                        async (c): Promise<ICell> => {
+                            if (c.data.cell_type === 'code' && notebook) {
+                                const results = await notebook.execute(
+                                    { code: concatMultilineString(c.data.source), id: c.id },
+                                    cancelToken
+                                );
+                                return {
+                                    ...c,
+                                    state: results.state,
+                                    data: {
+                                        ...c.data,
+                                        outputs: results.outputs,
+                                        execution_count: results.execution_count
+                                    }
+                                };
+                            } else {
+                                return c;
+                            }
+                        }
+                    );
+                })
             );
             // Then save them to the file
             let directoryChange;

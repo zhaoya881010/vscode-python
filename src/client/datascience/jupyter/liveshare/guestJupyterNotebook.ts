@@ -117,15 +117,15 @@ export class GuestJupyterNotebook
 
     public async execute(options: IExecuteOptions, cancelToken?: CancellationToken): Promise<IExecuteResult> {
         // Create a deferred that we'll fire when we're done
-        const deferred = createDeferred<ICell[]>();
+        const deferred = createDeferred<IExecuteResult>();
 
         // Attempt to evaluate this cell in the jupyter notebook
         const observable = this.executeObservable(options);
-        let output: ICell[];
+        let output: IExecuteResult;
 
         observable.subscribe(
-            (cells: ICell[]) => {
-                output = cells;
+            (result: IExecuteResult) => {
+                output = result;
             },
             (error) => {
                 deferred.reject(error);
@@ -191,12 +191,12 @@ export class GuestJupyterNotebook
         return Promise.resolve(`${LiveShare.JupyterNotebookSharedService}${uriString}`);
     }
 
-    public async getSysInfo(): Promise<ICell | undefined> {
+    public async getSysInfo(): Promise<string[]> {
         // This is a special case. Ask the shared server
         const service = await this.waitForService();
         if (service) {
             const result = await service.request(LiveShareCommands.getSysInfo, []);
-            return result as ICell;
+            return result as string[];
         }
     }
 

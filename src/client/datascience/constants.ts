@@ -519,6 +519,7 @@ export namespace Identifiers {
     export const REMOTE_URI = 'https://remote/';
     export const REMOTE_URI_ID_PARAM = 'id';
     export const REMOTE_URI_HANDLE_PARAM = 'uriHandle';
+    export const OUTPUT_PREPEND_TAG = 'outputPrepend';
 }
 
 export namespace CodeSnippits {

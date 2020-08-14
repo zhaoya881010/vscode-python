@@ -8,7 +8,15 @@ import { inject, injectable } from 'inversify';
 import { IExtensionSingleActivationService } from '../../activation/types';
 import { captureTelemetry, sendTelemetryEvent } from '../../telemetry';
 import { Telemetry } from '../constants';
-import { CellState, ICell, INotebookEditor, INotebookEditorProvider, INotebookExecutionLogger } from '../types';
+import {
+    CellState,
+    ICell,
+    IExecuteOptions,
+    IExecuteResult,
+    INotebookEditor,
+    INotebookEditorProvider,
+    INotebookExecutionLogger
+} from '../types';
 // tslint:disable-next-line:no-require-imports no-var-requires
 const flatten = require('lodash/flatten') as typeof import('lodash/flatten');
 
@@ -28,12 +36,12 @@ export class CellOutputMimeTypeTracker implements IExtensionSingleActivationServ
     public onKernelRestarted() {
         // Do nothing on restarted
     }
-    public async preExecute(_cell: ICell, _silent: boolean): Promise<void> {
+    public async preExecute(_options: IExecuteOptions): Promise<void> {
         // Do nothing on pre execute
     }
-    public async postExecute(cell: ICell, silent: boolean): Promise<void> {
-        if (!silent && cell.data.cell_type === 'code') {
-            this.scheduleCheck(this.createCellKey(cell), this.checkCell.bind(this, cell));
+    public async postExecute(options: IExecuteOptions, result: IExecuteResult): Promise<void> {
+        if (!options.silent) {
+            this.scheduleCheck(this.createExecuteKey(result), this.checkResults.bind(this, result));
         }
     }
     public async activate(): Promise<void> {
@@ -46,6 +54,7 @@ export class CellOutputMimeTypeTracker implements IExtensionSingleActivationServ
             this.scheduleCheck(e.file.fsPath, this.checkNotebook.bind(this, e));
         }
     }
+
     private getCellOutputMimeTypes(cell: ICell): string[] {
         if (cell.data.cell_type === 'markdown') {
             return ['markdown'];
@@ -63,6 +72,20 @@ export class CellOutputMimeTypeTracker implements IExtensionSingleActivationServ
                 return [];
             default: {
                 return flatten(cell.data.outputs.map(this.getOutputMimeTypes.bind(this)));
+            }
+        }
+    }
+    private getResultOutputMimeTypes(result: IExecuteResult): string[] {
+        if (!Array.isArray(result.outputs)) {
+            return [];
+        }
+        switch (result.state) {
+            case CellState.editing:
+            case CellState.error:
+            case CellState.executing:
+                return [];
+            default: {
+                return flatten(result.outputs.map(this.getOutputMimeTypes.bind(this)));
             }
         }
     }
@@ -104,16 +127,25 @@ export class CellOutputMimeTypeTracker implements IExtensionSingleActivationServ
         return `${cell.file}${cell.id}`;
     }
 
+    private createExecuteKey(results: IExecuteResult): string {
+        return results.id;
+    }
+
     @captureTelemetry(Telemetry.HashedCellOutputMimeTypePerf)
-    private checkCell(cell: ICell) {
-        this.pendingChecks.delete(this.createCellKey(cell));
-        this.getCellOutputMimeTypes(cell).forEach(this.sendTelemetry.bind(this));
+    private checkResults(results: IExecuteResult) {
+        this.pendingChecks.delete(this.createExecuteKey(results));
+        this.getResultOutputMimeTypes(results).forEach(this.sendTelemetry.bind(this));
     }
 
     @captureTelemetry(Telemetry.HashedNotebookCellOutputMimeTypePerf)
     private checkNotebook(e: INotebookEditor) {
         this.pendingChecks.delete(e.file.fsPath);
         e.model?.cells.forEach(this.checkCell.bind(this));
+    }
+
+    private checkCell(cell: ICell) {
+        this.pendingChecks.delete(this.createCellKey(cell));
+        this.getCellOutputMimeTypes(cell).forEach(this.sendTelemetry.bind(this));
     }
 
     private sendTelemetry(mimeType: string) {
