@@ -11,9 +11,9 @@ import { PYTHON_LANGUAGE } from '../../common/constants';
 import { traceError } from '../../common/logger';
 import { IConfigurationService, IDisposable } from '../../common/types';
 import * as localize from '../../common/utils/localize';
-import { DataFrameLoading, Identifiers, Settings } from '../constants';
+import { DataFrameLoading, Settings } from '../constants';
 import {
-    ICell,
+    IExecuteResult,
     IJupyterVariable,
     IJupyterVariables,
     IJupyterVariablesRequest,
@@ -105,14 +105,11 @@ export class KernelVariables implements IJupyterVariables {
         await this.importDataFrameScripts(notebook);
 
         // Then execute a call to get the info and turn it into JSON
-        const results = await notebook.execute(
-            `print(${DataFrameLoading.DataFrameInfoFunc}(${targetVariable.name}))`,
-            Identifiers.EmptyFileName,
-            0,
-            uuid(),
-            undefined,
-            true
-        );
+        const results = await notebook.execute({
+            code: `print(${DataFrameLoading.DataFrameInfoFunc}(${targetVariable.name}))`,
+            id: uuid(),
+            silent: true
+        });
 
         // Combine with the original result (the call only returns the new fields)
         return {
@@ -135,14 +132,11 @@ export class KernelVariables implements IJupyterVariables {
         }
 
         // Then execute a call to get the rows and turn it into JSON
-        const results = await notebook.execute(
-            `print(${DataFrameLoading.DataFrameRowFunc}(${targetVariable.name}, ${start}, ${end}))`,
-            Identifiers.EmptyFileName,
-            0,
-            uuid(),
-            undefined,
-            true
-        );
+        const results = await notebook.execute({
+            code: `print(${DataFrameLoading.DataFrameRowFunc}(${targetVariable.name}, ${start}, ${end}))`,
+            id: uuid(),
+            silent: true
+        });
         return this.deserializeJupyterResult(results);
     }
 
@@ -160,7 +154,7 @@ export class KernelVariables implements IJupyterVariables {
             disposables.push(notebook.onKernelRestarted(handler));
 
             const fullCode = `${DataFrameLoading.DataFrameSysImport}\n${DataFrameLoading.DataFrameInfoImport}\n${DataFrameLoading.DataFrameRowImport}\n${DataFrameLoading.VariableInfoImport}`;
-            await notebook.execute(fullCode, Identifiers.EmptyFileName, 0, uuid(), token, true);
+            await notebook.execute({ code: fullCode, id: uuid(), silent: true }, token);
             this.importedDataFrameScripts.set(notebook.identity.toString(), true);
         }
     }
@@ -174,14 +168,11 @@ export class KernelVariables implements IJupyterVariables {
         await this.importDataFrameScripts(notebook, token);
 
         // Then execute a call to get the info and turn it into JSON
-        const results = await notebook.execute(
-            `print(${DataFrameLoading.VariableInfoFunc}(${targetVariable.name}))`,
-            Identifiers.EmptyFileName,
-            0,
-            uuid(),
-            token,
-            true
-        );
+        const results = await notebook.execute({
+            code: `print(${DataFrameLoading.VariableInfoFunc}(${targetVariable.name}))`,
+            id: uuid(),
+            silent: true
+        });
 
         // Combine with the original result (the call only returns the new fields)
         return {
@@ -190,53 +181,46 @@ export class KernelVariables implements IJupyterVariables {
         };
     }
 
-    private extractJupyterResultText(cells: ICell[]): string {
+    private extractJupyterResultText(results: IExecuteResult): string {
         // Verify that we have the correct cell type and outputs
-        if (cells.length > 0 && cells[0].data) {
-            const codeCell = cells[0].data as nbformat.ICodeCell;
-            if (codeCell.outputs.length > 0) {
-                const codeCellOutput = codeCell.outputs[0] as nbformat.IOutput;
-                if (
-                    codeCellOutput &&
-                    codeCellOutput.output_type === 'stream' &&
-                    codeCellOutput.name === 'stderr' &&
-                    codeCellOutput.hasOwnProperty('text')
-                ) {
-                    const resultString = codeCellOutput.text as string;
-                    // See if this the IOPUB data rate limit problem
-                    if (resultString.includes('iopub_data_rate_limit')) {
-                        throw new JupyterDataRateLimitError();
-                    } else {
-                        const error = localize.DataScience.jupyterGetVariablesExecutionError().format(resultString);
-                        traceError(error);
-                        throw new Error(error);
-                    }
-                }
-                if (codeCellOutput && codeCellOutput.output_type === 'execute_result') {
-                    const data = codeCellOutput.data;
-                    if (data && data.hasOwnProperty('text/plain')) {
-                        // tslint:disable-next-line:no-any
-                        return (data as any)['text/plain'];
-                    }
-                }
-                if (
-                    codeCellOutput &&
-                    codeCellOutput.output_type === 'stream' &&
-                    codeCellOutput.hasOwnProperty('text')
-                ) {
-                    return codeCellOutput.text as string;
-                }
-                if (
-                    codeCellOutput &&
-                    codeCellOutput.output_type === 'error' &&
-                    codeCellOutput.hasOwnProperty('traceback')
-                ) {
-                    const traceback: string[] = codeCellOutput.traceback as string[];
-                    const stripped = traceback.map(stripAnsi).join('\r\n');
-                    const error = localize.DataScience.jupyterGetVariablesExecutionError().format(stripped);
+        if (results.outputs.length > 0) {
+            const codeCellOutput = results.outputs[0] as nbformat.IOutput;
+            if (
+                codeCellOutput &&
+                codeCellOutput.output_type === 'stream' &&
+                codeCellOutput.name === 'stderr' &&
+                codeCellOutput.hasOwnProperty('text')
+            ) {
+                const resultString = codeCellOutput.text as string;
+                // See if this the IOPUB data rate limit problem
+                if (resultString.includes('iopub_data_rate_limit')) {
+                    throw new JupyterDataRateLimitError();
+                } else {
+                    const error = localize.DataScience.jupyterGetVariablesExecutionError().format(resultString);
                     traceError(error);
                     throw new Error(error);
                 }
+            }
+            if (codeCellOutput && codeCellOutput.output_type === 'execute_result') {
+                const data = codeCellOutput.data;
+                if (data && data.hasOwnProperty('text/plain')) {
+                    // tslint:disable-next-line:no-any
+                    return (data as any)['text/plain'];
+                }
+            }
+            if (codeCellOutput && codeCellOutput.output_type === 'stream' && codeCellOutput.hasOwnProperty('text')) {
+                return codeCellOutput.text as string;
+            }
+            if (
+                codeCellOutput &&
+                codeCellOutput.output_type === 'error' &&
+                codeCellOutput.hasOwnProperty('traceback')
+            ) {
+                const traceback: string[] = codeCellOutput.traceback as string[];
+                const stripped = traceback.map(stripAnsi).join('\r\n');
+                const error = localize.DataScience.jupyterGetVariablesExecutionError().format(stripped);
+                traceError(error);
+                throw new Error(error);
             }
         }
 
@@ -244,8 +228,8 @@ export class KernelVariables implements IJupyterVariables {
     }
 
     // Pull our text result out of the Jupyter cell
-    private deserializeJupyterResult<T>(cells: ICell[]): T {
-        const text = this.extractJupyterResultText(cells);
+    private deserializeJupyterResult<T>(result: IExecuteResult): T {
+        const text = this.extractJupyterResultText(result);
         return JSON.parse(text) as T;
     }
 
@@ -373,7 +357,7 @@ export class KernelVariables implements IJupyterVariables {
 
         // Now execute the query
         if (notebook && query) {
-            const cells = await notebook.execute(query.query, Identifiers.EmptyFileName, 0, uuid(), token, true);
+            const cells = await notebook.execute({ code: query.query, id: uuid(), silent: true }, token);
             const text = this.extractJupyterResultText(cells);
 
             // Apply the expression to it

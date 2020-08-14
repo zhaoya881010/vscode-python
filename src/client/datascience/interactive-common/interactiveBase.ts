@@ -49,7 +49,7 @@ import { isUntitledFile, noop } from '../../common/utils/misc';
 import { StopWatch } from '../../common/utils/stopWatch';
 import { PythonEnvironment } from '../../pythonEnvironments/info';
 import { captureTelemetry, sendTelemetryEvent } from '../../telemetry';
-import { generateCellRangesFromDocument } from '../cellFactory';
+import { generateCellRangesFromDocument, generateCells } from '../cellFactory';
 import { CellMatcher } from '../cellMatcher';
 import { addToUriList, translateKernelLanguageToMonaco } from '../common';
 import { Commands, Identifiers, Telemetry } from '../constants';
@@ -80,6 +80,7 @@ import {
     ICodeCssGenerator,
     IDataScienceErrorHandler,
     IDataScienceFileSystem,
+    IExecuteResult,
     IInteractiveBase,
     IInteractiveWindowInfo,
     IInteractiveWindowListener,
@@ -640,14 +641,7 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
 
                 // If the file isn't unknown, set the active kernel's __file__ variable to point to that same file.
                 if (file !== Identifiers.EmptyFileName) {
-                    await this._notebook.execute(
-                        `__file__ = '${file.replace(/\\/g, '\\\\')}'`,
-                        file,
-                        line,
-                        uuid(),
-                        cancelToken,
-                        true
-                    );
+                    await this._notebook.setFile(file, cancelToken);
                 }
                 if (stopWatch && !this.perceivedJupyterStartupTelemetryCaptured) {
                     this.perceivedJupyterStartupTelemetryCaptured = true;
@@ -660,37 +654,49 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
                     });
                 }
                 const owningResource = this.owningResource;
-                const observable = this._notebook.executeObservable(code, file, line, id, false);
+                let { markdownCell, splitCode } = this.splitCode(code);
 
-                // Indicate we executed some code
-                this.executeEvent.fire(code);
+                // If we have split code that means this is a code cell
+                if (splitCode) {
+                    const observable = this._notebook.executeObservable({ code: splitCode, file, line, id });
 
-                // Sign up for cell changes
-                observable.subscribe(
-                    (cells: ICell[]) => {
-                        // Combine the cell data with the possible input data (so we don't lose anything that might have already been in the cells)
-                        const combined = cells.map(this.combineData.bind(undefined, data));
+                    // Indicate we executed some code
+                    this.executeEvent.fire(splitCode);
 
-                        // Then send the combined output to the UI
-                        this.sendCellsToWebView(combined);
+                    // Sign up for changes
+                    observable.subscribe(
+                        (executeResult: IExecuteResult) => {
+                            // Combine the cell data with the possible input data (so we don't lose anything that might have already been in the cells)
+                            const combined = this.combineData(data, executeResult);
 
-                        // Any errors will move our result to false (if allowed)
-                        if (this.configuration.getSettings(owningResource).datascience.stopOnError) {
-                            result = result && cells.find((c) => c.state === CellState.error) === undefined;
+                            // Then send the combined output to the UI
+                            this.sendCellsToWebView(markdownCell ? [markdownCell, combined] : [combined]);
+
+                            // Only send the markdown cell once.
+                            markdownCell = undefined;
+
+                            // Any errors will move our result to false (if allowed)
+                            if (this.configuration.getSettings(owningResource).datascience.stopOnError) {
+                                result = result && executeResult.state !== CellState.error;
+                            }
+                        },
+                        (error) => {
+                            traceError(`Error executing a cell: `, error);
+                            status.dispose();
+                            if (!(error instanceof CancellationError)) {
+                                this.applicationShell.showErrorMessage(error.toString());
+                            }
+                        },
+                        () => {
+                            // Indicate executing until this cell is done.
+                            status.dispose();
                         }
-                    },
-                    (error) => {
-                        traceError(`Error executing a cell: `, error);
-                        status.dispose();
-                        if (!(error instanceof CancellationError)) {
-                            this.applicationShell.showErrorMessage(error.toString());
-                        }
-                    },
-                    () => {
-                        // Indicate executing until this cell is done.
-                        status.dispose();
-                    }
-                );
+                    );
+                } else if (markdownCell) {
+                    // Just a markdown cell. Send it directly
+                    this.sendCellsToWebView([markdownCell]);
+                    status.dispose();
+                }
 
                 // Wait for the cell to finish
                 await finishedAddingCode.promise;
@@ -873,19 +879,21 @@ export abstract class InteractiveBase extends WebViewHost<IInteractiveWindowMapp
         }
     }
 
+    private splitCode(code: string): { markdownCell: nbformat.IMarkdownCell | undefined; code: string } {}
+
     private combineData(
         oldData: nbformat.ICodeCell | nbformat.IRawCell | nbformat.IMarkdownCell | undefined,
-        cell: ICell
+        executeResult: IExecuteResult
     ): ICell {
         if (oldData) {
+            const oldTags = oldData.metadata.tags || [];
             const result = {
                 ...cell,
                 data: {
                     ...oldData,
-                    ...cell.data,
                     metadata: {
                         ...oldData.metadata,
-                        ...cell.data.metadata
+                        tags: executeResult.trimmedOutput && !oldTags.find('outputPrepend')
                     }
                 }
             };

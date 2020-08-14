@@ -7,16 +7,16 @@ import * as vsls from 'vsls/vscode';
 
 import { createDeferred, Deferred } from '../../../common/utils/async';
 import { LiveShareCommands } from '../../constants';
-import { ICell } from '../../types';
+import { CellState, IExecuteResult } from '../../types';
 import { IExecuteObservableResponse, IServerResponse } from './types';
 
 export class ResponseQueue {
     private responseQueue: IServerResponse[] = [];
     private waitingQueue: { deferred: Deferred<IServerResponse>; predicate(r: IServerResponse): boolean }[] = [];
 
-    public waitForObservable(code: string, id: string): Observable<ICell[]> {
+    public waitForObservable(code: string, id: string): Observable<IExecuteResult> {
         // Create a wrapper observable around the actual server
-        return new Observable<ICell[]>((subscriber) => {
+        return new Observable<IExecuteResult>((subscriber) => {
             // Wait for the observable responses to come in
             this.waitForResponses(subscriber, code, id).catch((e) => {
                 subscriber.error(e);
@@ -38,19 +38,19 @@ export class ResponseQueue {
         this.responseQueue = [];
     }
 
-    private async waitForResponses(subscriber: Subscriber<ICell[]>, code: string, id: string): Promise<void> {
+    private async waitForResponses(subscriber: Subscriber<IExecuteResult>, code: string, id: string): Promise<void> {
         let pos = 0;
-        let cells: ICell[] | undefined = [];
-        while (cells !== undefined) {
+        let result: IExecuteResult | undefined = { id: '1', state: CellState.init, execution_count: null, outputs: [] };
+        while (result !== undefined) {
             // Find all matches in order
             const response = await this.waitForSpecificResponse<IExecuteObservableResponse>((r) => {
                 return r.pos === pos && id === r.id && code === r.code;
             });
-            if (response.cells) {
-                subscriber.next(response.cells);
+            if (response.result) {
+                subscriber.next(response.result);
                 pos += 1;
             }
-            cells = response.cells;
+            result = response.result;
         }
         subscriber.complete();
 

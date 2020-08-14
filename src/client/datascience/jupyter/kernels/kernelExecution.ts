@@ -3,7 +3,6 @@
 
 'use strict';
 
-import { nbformat } from '@jupyterlab/coreutils';
 import { Subscription } from 'rxjs';
 import { NotebookCell, NotebookCellRunState, NotebookDocument } from 'vscode';
 import { ICommandManager } from '../../../common/application/types';
@@ -203,27 +202,18 @@ export class KernelExecution implements IDisposable {
             cellExecution.start();
             const cellId = cellExecution.cell.uri.toString();
             this.notebook.clear(cellId);
-            const observable = this.notebook.executeObservable(
-                cellExecution.cell.document.getText(),
-                document.fileName,
-                0,
-                cellId,
-                false
-            );
+            const observable = this.notebook.executeObservable({
+                code: cellExecution.cell.document.getText(),
+                id: cellId,
+                metadata: cellExecution.cell.metadata.custom
+            });
             subscription = observable?.subscribe(
-                (cells) => {
-                    const rawCellOutput = cells
-                        .filter((item) => item.id === cellId)
-                        .flatMap((item) => (item.data.outputs as unknown) as nbformat.IOutput[])
-                        .filter((output) => !hasTransientOutputForAnotherCell(output));
+                (result) => {
+                    const rawCellOutput = result.outputs.filter((output) => !hasTransientOutputForAnotherCell(output));
 
                     // Set execution count, all messages should have it
-                    if (
-                        cells.length &&
-                        'execution_count' in cells[0].data &&
-                        typeof cells[0].data.execution_count === 'number'
-                    ) {
-                        const executionCount = cells[0].data.execution_count as number;
+                    if (typeof result.execution_count === 'number') {
+                        const executionCount = result.execution_count as number;
                         if (updateCellExecutionCount(cellExecution.cell, executionCount)) {
                             this.contentProvider.notifyChangesToDocument(document);
                         }

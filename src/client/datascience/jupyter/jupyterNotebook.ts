@@ -9,7 +9,7 @@ import * as uuid from 'uuid/v4';
 import { Disposable, Event, EventEmitter, Uri } from 'vscode';
 import { CancellationToken } from 'vscode-jsonrpc';
 import { ServerStatus } from '../../../datascience-ui/interactive-common/mainState';
-import { IApplicationShell, ILiveShareApi, IWorkspaceService } from '../../common/application/types';
+import { IApplicationShell, IWorkspaceService } from '../../common/application/types';
 import { CancellationError, createPromiseFromCancellation } from '../../common/cancellation';
 import '../../common/extensions';
 import { traceError, traceInfo, traceWarning } from '../../common/logger';
@@ -21,12 +21,12 @@ import { noop } from '../../common/utils/misc';
 import { StopWatch } from '../../common/utils/stopWatch';
 import { PythonEnvironment } from '../../pythonEnvironments/info';
 import { captureTelemetry, sendTelemetryEvent } from '../../telemetry';
-import { generateCells } from '../cellFactory';
 import { CellMatcher } from '../cellMatcher';
 import { CodeSnippits, Identifiers, Telemetry } from '../constants';
 import {
     CellState,
     IDataScienceFileSystem,
+    IExecuteOptions,
     IExecuteResult,
     IJupyterKernelSpec,
     IJupyterSession,
@@ -69,8 +69,12 @@ class ExecutionSubscriber {
     private _startTime: number;
     private _result: IExecuteResult;
 
-    constructor(private subscriber: Subscriber<IExecuteResult>, promiseComplete: (self: ExecutionSubscriber) => void) {
-        this._result = { execution_count: 0, outputs: [], state: CellState.executing };
+    constructor(
+        public readonly options: IExecuteOptions,
+        private subscriber: Subscriber<IExecuteResult>,
+        promiseComplete: (self: ExecutionSubscriber) => void
+    ) {
+        this._result = { execution_count: 0, outputs: [], state: CellState.executing, id: uuid() };
         this.subscriber = subscriber;
         this.promiseComplete = promiseComplete;
         this._startTime = Date.now();
@@ -176,6 +180,7 @@ export class JupyterNotebookBase implements INotebook {
     private sessionStatusChanged: Disposable | undefined;
     private initializedMatplotlib = false;
     private ioPubListeners = new Set<(msg: KernelMessage.IIOPubMessage, requestId: string) => void>();
+    private __file__: string | undefined;
     public get kernelSocket(): Observable<KernelSocketInformation | undefined> {
         return this.session.kernelSocket;
     }
@@ -299,8 +304,8 @@ export class JupyterNotebookBase implements INotebook {
             if (setting) {
                 // Cleanup the line feeds. User may have typed them into the settings UI so they will have an extra \\ on the front.
                 const cleanedUp = setting.replace(/\\n/g, '\n');
-                const cells = await this.executeSilently(cleanedUp, cancelToken);
-                traceInfo(`Run startup code for notebook: ${cleanedUp} - results: ${cells.length}`);
+                await this.executeSilently(cleanedUp, cancelToken);
+                traceInfo(`Ran startup code for notebook: ${cleanedUp}`);
             }
 
             traceInfo(`Initial setup complete for ${this.identity.toString()}`);
@@ -314,17 +319,12 @@ export class JupyterNotebookBase implements INotebook {
         noop();
     }
 
-    public execute(
-        code: string,
-        id: string,
-        cancelToken?: CancellationToken,
-        silent?: boolean
-    ): Promise<IExecuteResult> {
+    public execute(options: IExecuteOptions, cancelToken?: CancellationToken): Promise<IExecuteResult> {
         // Create a deferred that we'll fire when we're done
         const deferred = createDeferred<IExecuteResult>();
 
         // Attempt to evaluate this code in the jupyter notebook.
-        const observable = this.executeObservable(code, id, silent);
+        const observable = this.executeObservable(options);
         let output: IExecuteResult;
 
         observable.subscribe(
@@ -388,10 +388,10 @@ export class JupyterNotebookBase implements INotebook {
         return this.updateWorkingDirectoryAndPath(file);
     }
 
-    public executeObservable(code: string, id: string, silent: boolean = false): Observable<IExecuteResult> {
+    public executeObservable(options: IExecuteOptions): Observable<IExecuteResult> {
         // Create an observable and wrap the result so we can time it.
         const stopWatch = new StopWatch();
-        const result = this.executeObservableImpl(code, id, silent);
+        const result = this.executeObservableImpl(options);
         return new Observable<IExecuteResult>((subscriber) => {
             result.subscribe(
                 (output) => {
@@ -410,20 +410,26 @@ export class JupyterNotebookBase implements INotebook {
 
     public async getSysInfo(): Promise<string[]> {
         // tslint:disable-next-line:no-multiline-string
-        const versionCells = await this.executeSilently(`import sys\r\nsys.version`);
+        const versionInfo = await this.executeSilently(`import sys\r\nsys.version`);
         // tslint:disable-next-line:no-multiline-string
-        const pathCells = await this.executeSilently(`import sys\r\nsys.executable`);
+        const pathInfo = await this.executeSilently(`import sys\r\nsys.executable`);
         // tslint:disable-next-line:no-multiline-string
-        const notebookVersionCells = await this.executeSilently(`import notebook\r\nnotebook.version_info`);
+        const notebookVersionInfo = await this.executeSilently(`import notebook\r\nnotebook.version_info`);
 
         // Both should have streamed output
-        const version = versionCells.length > 0 ? this.extractStreamOutput(versionCells[0]).trimQuotes() : '';
-        const notebookVersion =
-            notebookVersionCells.length > 0 ? this.extractStreamOutput(notebookVersionCells[0]).trimQuotes() : '';
-        const pythonPath = versionCells.length > 0 ? this.extractStreamOutput(pathCells[0]).trimQuotes() : '';
+        const version = this.extractStreamOutput(versionInfo).trimQuotes();
+        const notebookVersion = this.extractStreamOutput(notebookVersionInfo).trimQuotes();
+        const pythonPath = this.extractStreamOutput(pathInfo).trimQuotes();
 
         // Combine this data together to make our sys info
         return [version, notebookVersion, pythonPath];
+    }
+
+    public async setFile(file: string, cancelToken?: CancellationToken): Promise<void> {
+        // If the file isn't unknown, set the active kernel's __file__ variable to point to a file.
+        if (!this.__file__) {
+            await this.executeSilently(`__file__ = '${file.replace(/\\/g, '\\\\')}'`, cancelToken);
+        }
     }
 
     @captureTelemetry(Telemetry.RestartJupyterTime)
@@ -739,7 +745,7 @@ export class JupyterNotebookBase implements INotebook {
         const deferred = createDeferred<IExecuteResult>();
 
         // Attempt to evaluate this cell in the jupyter notebook
-        const observable = this.executeObservableImpl(code, uuid(), true);
+        const observable = this.executeObservableImpl({ code, id: uuid(), silent: true });
         let output: IExecuteResult;
 
         observable.subscribe(
@@ -786,16 +792,16 @@ export class JupyterNotebookBase implements INotebook {
         return output;
     }
 
-    private executeObservableImpl(code: string, id: string, silent?: boolean): Observable<IExecuteResult> {
+    private executeObservableImpl(options: IExecuteOptions): Observable<IExecuteResult> {
         return new Observable<IExecuteResult>((subscriber) => {
             // Wrap the subscriber and save it. It is now pending and waiting completion. Have to do this
             // synchronously so it happens before interruptions.
-            const execution = new ExecutionSubscriber(subscriber, (self: ExecutionSubscriber) => {
+            const execution = new ExecutionSubscriber(options, subscriber, (self: ExecutionSubscriber) => {
                 // Subscriber completed, remove from subscriptions.
                 this.pendingExecutions = this.pendingExecutions.filter((p) => p !== self);
 
                 // Indicate success or failure
-                this.logPostCode(code, id, self.result, silent ?? false).ignoreErrors();
+                this.logPostCode(self.options, self.result).ignoreErrors();
             });
             this.pendingExecutions.push(execution);
 
@@ -803,10 +809,10 @@ export class JupyterNotebookBase implements INotebook {
             subscriber.next(execution.result);
 
             // Log the pre execution.
-            this.logPreCode(code, id, silent ?? false)
+            this.logPreCode(options)
                 .then(() => {
                     // Now send our real request. This should call back on the cellsubscriber when it's done.
-                    this.handleCodeRequest(execution, silent);
+                    this.handleCodeRequest(execution);
                 })
                 .ignoreErrors();
         });
@@ -840,39 +846,6 @@ export class JupyterNotebookBase implements INotebook {
         }
 
         return undefined;
-    };
-
-    private combineObservables = (...args: Observable<ICell>[]): Observable<ICell[]> => {
-        return new Observable<ICell[]>((subscriber) => {
-            // When all complete, we have our results
-            const results: Record<string, ICell> = {};
-
-            args.forEach((o) => {
-                o.subscribe(
-                    (c) => {
-                        results[c.id] = c;
-
-                        // Convert to an array
-                        const array = Object.keys(results).map((k: string) => {
-                            return results[k];
-                        });
-
-                        // Update our subscriber of our total results if we have that many
-                        if (array.length === args.length) {
-                            subscriber.next(array);
-
-                            // Complete when everybody is finished
-                            if (array.every((a) => a.state === CellState.finished || a.state === CellState.error)) {
-                                subscriber.complete();
-                            }
-                        }
-                    },
-                    (e) => {
-                        subscriber.error(e);
-                    }
-                );
-            });
-        });
     };
 
     private async updateWorkingDirectoryAndPath(launchingFile?: string): Promise<void> {
@@ -927,9 +900,14 @@ export class JupyterNotebookBase implements INotebook {
         let shouldUpdateSubscriber = true;
         try {
             if (jupyterLab.KernelMessage.isExecuteResultMsg(msg)) {
-                this.handleExecuteResult(msg as KernelMessage.IExecuteResultMsg, clearState, subscriber.cell, trimFunc);
+                this.handleExecuteResult(
+                    msg as KernelMessage.IExecuteResultMsg,
+                    clearState,
+                    subscriber.result,
+                    trimFunc
+                );
             } else if (jupyterLab.KernelMessage.isExecuteInputMsg(msg)) {
-                this.handleExecuteInput(msg as KernelMessage.IExecuteInputMsg, clearState, subscriber.cell);
+                this.handleExecuteInput(msg as KernelMessage.IExecuteInputMsg, clearState, subscriber.result);
             } else if (jupyterLab.KernelMessage.isStatusMsg(msg)) {
                 // If there is no change in the status, then there's no need to update the subscriber.
                 // Else we end up sending a number of messages unnecessarily uptream.
@@ -938,18 +916,18 @@ export class JupyterNotebookBase implements INotebook {
                     shouldUpdateSubscriber = false;
                 }
                 subscriber.executionState = statusMsg.content.execution_state;
-                this.handleStatusMessage(statusMsg, clearState, subscriber.cell);
+                this.handleStatusMessage(statusMsg, clearState, subscriber.result);
             } else if (jupyterLab.KernelMessage.isStreamMsg(msg)) {
-                this.handleStreamMesssage(msg as KernelMessage.IStreamMsg, clearState, subscriber.cell, trimFunc);
+                this.handleStreamMesssage(msg as KernelMessage.IStreamMsg, clearState, subscriber.result, trimFunc);
             } else if (jupyterLab.KernelMessage.isDisplayDataMsg(msg)) {
-                this.handleDisplayData(msg as KernelMessage.IDisplayDataMsg, clearState, subscriber.cell);
+                this.handleDisplayData(msg as KernelMessage.IDisplayDataMsg, clearState, subscriber.result);
             } else if (jupyterLab.KernelMessage.isUpdateDisplayDataMsg(msg)) {
                 // No new data to update UI, hence do not send updates.
                 shouldUpdateSubscriber = false;
             } else if (jupyterLab.KernelMessage.isClearOutputMsg(msg)) {
-                this.handleClearOutput(msg as KernelMessage.IClearOutputMsg, clearState, subscriber.cell);
+                this.handleClearOutput(msg as KernelMessage.IClearOutputMsg, clearState, subscriber.result);
             } else if (jupyterLab.KernelMessage.isErrorMsg(msg)) {
-                this.handleError(msg as KernelMessage.IErrorMsg, clearState, subscriber.cell);
+                this.handleError(msg as KernelMessage.IErrorMsg, clearState, subscriber.result);
             } else if (jupyterLab.KernelMessage.isCommOpenMsg(msg)) {
                 // No new data to update UI, hence do not send updates.
                 shouldUpdateSubscriber = false;
@@ -965,7 +943,7 @@ export class JupyterNotebookBase implements INotebook {
 
             // Set execution count, all messages should have it
             if ('execution_count' in msg.content && typeof msg.content.execution_count === 'number') {
-                subscriber.cell.data.execution_count = msg.content.execution_count as number;
+                subscriber.result.execution_count = msg.content.execution_count as number;
             }
 
             // Tell all of the listeners about the event.
@@ -1025,11 +1003,11 @@ export class JupyterNotebookBase implements INotebook {
         const trimFunc = silent ? (s: string) => s : this.trimOutput.bind(this);
 
         if (jupyterLab.KernelMessage.isExecuteReplyMsg(msg)) {
-            this.handleExecuteReply(msg, clearState, subscriber.cell, trimFunc);
+            this.handleExecuteReply(msg, clearState, subscriber.result, trimFunc);
 
             // Set execution count, all messages should have it
             if ('execution_count' in msg.content && typeof msg.content.execution_count === 'number') {
-                subscriber.cell.data.execution_count = msg.content.execution_count as number;
+                subscriber.result.execution_count = msg.content.execution_count as number;
             }
 
             // Send this event.
@@ -1048,13 +1026,14 @@ export class JupyterNotebookBase implements INotebook {
                 subscriber.error(this.sessionStartTime, exitError);
                 subscriber.complete(this.sessionStartTime);
             } else {
-                const request = this.generateRequest(concatMultilineString(subscriber.cell.data.source), silent, {
-                    ...subscriber.cell.data.metadata,
-                    ...{ cellId: subscriber.cell.id }
+                const metadata = subscriber.options.metadata ? subscriber.options.metadata : {};
+                const request = this.generateRequest(subscriber.options.code, silent, {
+                    ...metadata,
+                    ...{ cellId: subscriber.options.id }
                 });
 
                 // Transition to the busy stage
-                subscriber.cell.state = CellState.executing;
+                subscriber.result.state = CellState.executing;
 
                 // Make sure our connection doesn't go down
                 let exitHandlerDisposable: Disposable | undefined;
@@ -1120,46 +1099,18 @@ export class JupyterNotebookBase implements INotebook {
             );
 
             // Otherwise just set to an error
-            this.handleInterrupted(subscriber.cell);
-            subscriber.cell.state = CellState.error;
+            this.handleInterrupted(subscriber.result);
+            subscriber.result.state = CellState.error;
             subscriber.complete(this.sessionStartTime);
         }
     };
 
-    private executeCodeObservable(cell: ICell, silent?: boolean): Observable<ICell> {
-        return new Observable<ICell>((subscriber) => {
-            // Tell our listener. NOTE: have to do this asap so that markdown cells don't get
-            // run before our cells.
-            subscriber.next(cell);
-            const isSilent = silent !== undefined ? silent : false;
-
-            // Wrap the subscriber and save it. It is now pending and waiting completion. Have to do this
-            // synchronously so it happens before interruptions.
-            const cellSubscriber = new ExecutionSubscriber(cell, subscriber, (self: ExecutionSubscriber) => {
-                // Subscriber completed, remove from subscriptions.
-                this.pendingExecutions = this.pendingExecutions.filter((p) => p !== self);
-
-                // Indicate success or failure
-                this.logPostCode(cell, isSilent).ignoreErrors();
-            });
-            this.pendingExecutions.push(cellSubscriber);
-
-            // Log the pre execution.
-            this.logPreCode(cell, isSilent)
-                .then(() => {
-                    // Now send our real request. This should call back on the cellsubscriber when it's done.
-                    this.handleCodeRequest(cellSubscriber, silent);
-                })
-                .ignoreErrors();
-        });
+    private async logPreCode(options: IExecuteOptions): Promise<void> {
+        await Promise.all(this.loggers.map((l) => l.preExecute(options)));
     }
 
-    private async logPreCode(code: string, id: string, silent: boolean): Promise<void> {
-        await Promise.all(this.loggers.map((l) => l.preExecute(code, id, silent)));
-    }
-
-    private async logPostCode(code: string, id: string, result: IExecuteResult, silent: boolean): Promise<void> {
-        await Promise.all(this.loggers.map((l) => l.postExecute(code, id, cloneDeep(result), silent)));
+    private async logPostCode(options: IExecuteOptions, result: IExecuteResult): Promise<void> {
+        await Promise.all(this.loggers.map((l) => l.postExecute(options, cloneDeep(result))));
     }
 
     private addToResult = (
@@ -1286,19 +1237,9 @@ export class JupyterNotebookBase implements INotebook {
             trimmedTextLength = output.text.length;
         }
 
-        // If the output was trimmed, we add the 'outputPrepend' metadata tag.
-        // Later, the react side will display a message letting the user know
-        // the output is trimmed and what setting changes that.
-        // * If data.metadata.tags is undefined, define it so the following
-        //   code is can rely on it being defined.
-        if (result.metadata.tags === undefined) {
-            result.metadata.tags = [];
-        }
-
-        result.metadata.tags = result.metadata.tags.filter((t) => t !== 'outputPrepend');
-
+        // If the output was trimmed, indicate it is.
         if (trimmedTextLength < originalTextLength) {
-            result.metadata.tags.push('outputPrepend');
+            result.trimmedOutput = true;
         }
     }
 

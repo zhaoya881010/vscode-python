@@ -26,7 +26,6 @@ import { IInterpreterService } from '../../../interpreter/contracts';
 import { INotebookContentProvider } from '../../notebook/types';
 import { getDefaultNotebookContent, updateNotebookMetadata } from '../../notebookStorage/baseModel';
 import {
-    ICell,
     IDataScienceErrorHandler,
     IJupyterKernelSpec,
     INotebook,
@@ -103,19 +102,6 @@ export class Kernel implements IKernel {
             editorProvider,
             kernelSelectionUsage
         );
-    }
-    public executeObservable(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        silent: boolean
-    ): Observable<ICell[]> {
-        if (!this.notebook) {
-            throw new Error('executeObservable cannot be called if kernel has not been started!');
-        }
-        this.notebook.clear(id);
-        return this.notebook.executeObservable(code, file, line, id, silent);
     }
     public async executeCell(cell: NotebookCell): Promise<void> {
         await this.start({ disableUI: false, token: this.startCancellation.token });

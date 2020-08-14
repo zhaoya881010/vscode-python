@@ -4,7 +4,7 @@
 import * as vsls from 'vsls/vscode';
 
 import { IAsyncDisposable } from '../../../common/types';
-import { ICell } from '../../types';
+import { ICell, IExecuteResult } from '../../types';
 
 // tslint:disable:max-classes-per-file
 
@@ -22,7 +22,7 @@ export interface IExecuteObservableResponse extends IServerResponse {
     pos: number;
     code: string;
     id: string; // Unique id so guest side can tell what observable it belongs with
-    cells: ICell[] | undefined;
+    result: IExecuteResult | undefined;
 }
 
 export interface IExceptionResponse extends IServerResponse {

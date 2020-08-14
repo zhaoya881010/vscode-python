@@ -14,8 +14,9 @@ import { sleep } from '../../common/utils/async';
 import { noop } from '../../common/utils/misc';
 import { Identifiers } from '../constants';
 import {
-    ICell,
     IDataScienceFileSystem,
+    IExecuteOptions,
+    IExecuteResult,
     IInteractiveWindowProvider,
     IJupyterVariables,
     INotebook,
@@ -50,11 +51,11 @@ export class HoverProvider implements INotebookExecutionLogger, vscode.HoverProv
         this.runFiles.clear();
     }
 
-    public async preExecute(cell: ICell, silent: boolean): Promise<void> {
+    public async preExecute(options: IExecuteOptions): Promise<void> {
         try {
-            if (!silent && cell.file && cell.file !== Identifiers.EmptyFileName) {
+            if (!options.silent && options.file && options.file !== Identifiers.EmptyFileName) {
                 const size = this.runFiles.size;
-                this.runFiles.add(cell.file.toLocaleLowerCase());
+                this.runFiles.add(options.file.toLocaleLowerCase());
                 if (size !== this.runFiles.size) {
                     this.initializeHoverProvider();
                 }
@@ -65,7 +66,7 @@ export class HoverProvider implements INotebookExecutionLogger, vscode.HoverProv
         }
     }
 
-    public async postExecute(_cell: ICell, _silent: boolean): Promise<void> {
+    public async postExecute(_options: IExecuteOptions, _result: IExecuteResult): Promise<void> {
         noop();
     }
 

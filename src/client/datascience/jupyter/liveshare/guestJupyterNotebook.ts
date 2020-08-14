@@ -19,6 +19,8 @@ import { PythonEnvironment } from '../../../pythonEnvironments/info';
 import { LiveShare, LiveShareCommands } from '../../constants';
 import {
     ICell,
+    IExecuteOptions,
+    IExecuteResult,
     IJupyterKernelSpec,
     INotebook,
     INotebookCompletion,
@@ -113,18 +115,12 @@ export class GuestJupyterNotebook
         noop();
     }
 
-    public async execute(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        cancelToken?: CancellationToken
-    ): Promise<ICell[]> {
+    public async execute(options: IExecuteOptions, cancelToken?: CancellationToken): Promise<IExecuteResult> {
         // Create a deferred that we'll fire when we're done
         const deferred = createDeferred<ICell[]>();
 
         // Attempt to evaluate this cell in the jupyter notebook
-        const observable = this.executeObservable(code, file, line, id);
+        const observable = this.executeObservable(options);
         let output: ICell[];
 
         observable.subscribe(
@@ -163,16 +159,16 @@ export class GuestJupyterNotebook
         // Guest can't change the style. Maybe output a warning here?
     }
 
-    public executeObservable(code: string, file: string, line: number, id: string): Observable<ICell[]> {
+    public executeObservable(options: IExecuteOptions): Observable<IExecuteResult> {
         // Mimic this to the other side and then wait for a response
         this.waitForService()
             .then((s) => {
                 if (s) {
-                    s.notify(LiveShareCommands.executeObservable, { code, file, line, id });
+                    s.notify(LiveShareCommands.executeObservable, options);
                 }
             })
             .ignoreErrors();
-        return this.responseQueue.waitForObservable(code, id);
+        return this.responseQueue.waitForObservable(options.code, options.id);
     }
 
     public async restartKernel(): Promise<void> {

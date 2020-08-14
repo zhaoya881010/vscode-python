@@ -5,9 +5,17 @@ import type { KernelMessage } from '@jupyterlab/services';
 import * as hashjs from 'hash.js';
 import { inject, injectable, multiInject, optional } from 'inversify';
 import stripAnsi from 'strip-ansi';
-import { Event, EventEmitter, Position, Range, TextDocumentChangeEvent, TextDocumentContentChangeEvent } from 'vscode';
+import {
+    Event,
+    EventEmitter,
+    Position,
+    Range,
+    TextDocumentChangeEvent,
+    TextDocumentContentChangeEvent,
+    Uri
+} from 'vscode';
 
-import { splitMultilineString } from '../../../datascience-ui/common';
+import { concatMultilineString, splitMultilineString } from '../../../datascience-ui/common';
 import { IDebugService, IDocumentManager } from '../../common/application/types';
 import { traceError, traceInfo } from '../../common/logger';
 
@@ -22,6 +30,8 @@ import {
     ICellHashListener,
     ICellHashProvider,
     IDataScienceFileSystem,
+    IExecuteOptions,
+    IExecuteResult,
     IFileHashes,
     INotebook,
     INotebookExecutionLogger
@@ -45,6 +55,14 @@ interface IRangedCellHash extends ICellHash {
 // hashes for cells.
 @injectable()
 export class CellHashProvider implements ICellHashProvider, INotebookExecutionLogger {
+    public get updated(): Event<void> {
+        return this.updateEventEmitter.event;
+    }
+
+    // tslint:disable-next-line: no-any
+    public get postMessage(): Event<{ message: string; payload: any }> {
+        return this.postEmitter.event;
+    }
     // tslint:disable-next-line: no-any
     private postEmitter: EventEmitter<{ message: string; payload: any }> = new EventEmitter<{
         message: string;
@@ -73,15 +91,6 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         this.traceBackRegexes.clear();
     }
 
-    public get updated(): Event<void> {
-        return this.updateEventEmitter.event;
-    }
-
-    // tslint:disable-next-line: no-any
-    public get postMessage(): Event<{ message: string; payload: any }> {
-        return this.postEmitter.event;
-    }
-
     public getHashes(): IFileHashes[] {
         return [...this.hashes.entries()]
             .map((e) => {
@@ -100,18 +109,18 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         this.updateEventEmitter.fire();
     }
 
-    public async preExecute(cell: ICell, silent: boolean): Promise<void> {
+    public async preExecute(options: IExecuteOptions): Promise<void> {
         try {
-            if (!silent) {
+            if (!options.silent) {
                 // Don't log empty cells
-                const stripped = this.extractExecutableLines(cell);
+                const stripped = this.extractExecutableLines(options.code, options.file);
                 if (stripped.length > 0 && stripped.find((s) => s.trim().length > 0)) {
                     // When the user adds new code, we know the execution count is increasing
                     this.executionCount += 1;
 
                     // Skip hash on unknown file though
-                    if (cell.file !== Identifiers.EmptyFileName) {
-                        await this.addCellHash(cell, this.executionCount);
+                    if (!options.file && options.file !== Identifiers.EmptyFileName) {
+                        await this.addExecutionHash(options, this.executionCount);
                     }
                 }
             }
@@ -121,7 +130,7 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         }
     }
 
-    public async postExecute(_cell: ICell, _silent: boolean): Promise<void> {
+    public async postExecute(_options: IExecuteOptions, _result: IExecuteResult): Promise<void> {
         noop();
     }
 
@@ -140,9 +149,11 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         return msg;
     }
 
-    public extractExecutableLines(cell: ICell): string[] {
-        const cellMatcher = new CellMatcher(this.configService.getSettings(getCellResource(cell)).datascience);
-        const lines = splitMultilineString(cell.data.source);
+    public extractExecutableLines(code: string, file?: string): string[] {
+        const cellMatcher = new CellMatcher(
+            this.configService.getSettings(file ? Uri.file(file) : undefined).datascience
+        );
+        const lines = code.splitLines({ trim: false, removeEmptyEntries: false });
         // Only strip this off the first line. Otherwise we want the markers in the code.
         if (lines.length > 0 && (cellMatcher.isCode(lines[0]) || cellMatcher.isMarkdown(lines[0]))) {
             return lines.slice(1);
@@ -151,8 +162,10 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
     }
 
     public generateHashFileName(cell: ICell, expectedCount: number): string {
+        const code = concatMultilineString(cell.data.source);
+        const file = cell.file;
         // First get the true lines from the cell
-        const { stripped } = this.extractStrippedLines(cell);
+        const { stripped } = this.extractStrippedLines({ code, file, id: cell.id });
 
         // Then use that to make a hash value
         const hashedCode = stripped.join('');
@@ -160,14 +173,24 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         return `<ipython-input-${expectedCount}-${hash}>`;
     }
 
+    public getExecutionCount(): number {
+        return this.executionCount;
+    }
+
+    public incExecutionCount(): void {
+        this.executionCount += 1;
+    }
+
     // tslint:disable-next-line: cyclomatic-complexity
-    public async addCellHash(cell: ICell, expectedCount: number): Promise<void> {
+    private async addExecutionHash(options: IExecuteOptions, expectedCount: number): Promise<void> {
         // Find the text document that matches. We need more information than
         // the add code gives us
-        const doc = this.documentManager.textDocuments.find((d) => this.fs.areLocalPathsSame(d.fileName, cell.file));
+        const doc = this.documentManager.textDocuments.find((d) =>
+            this.fs.areLocalPathsSame(d.fileName, options.file || '')
+        );
         if (doc) {
             // Compute the code that will really be sent to jupyter
-            const { stripped, trueStartLine } = this.extractStrippedLines(cell);
+            const { stripped, trueStartLine } = this.extractStrippedLines(options);
 
             const line = doc.lineAt(trueStartLine);
             const endLine = doc.lineAt(Math.min(trueStartLine + stripped.length - 1, doc.lineCount - 1));
@@ -180,13 +203,15 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
 
             // Use the original values however to track edits. This is what we need
             // to move around
-            const startOffset = doc.offsetAt(new Position(cell.line, 0));
+            const startOffset = doc.offsetAt(new Position(options.line || 0, 0));
             const endOffset = doc.offsetAt(endLine.rangeIncludingLineBreak.end);
 
             // Compute the runtime line and adjust our cell/stripped source for debugging
-            const runtimeLine = this.adjustRuntimeForDebugging(cell, stripped, startOffset, endOffset);
+            const runtimeLine = this.adjustRuntimeForDebugging(options, stripped);
             const hashedCode = stripped.join('');
-            const realCode = doc.getText(new Range(new Position(cell.line, 0), endLine.rangeIncludingLineBreak.end));
+            const realCode = doc.getText(
+                new Range(new Position(options.line || 0, 0), endLine.rangeIncludingLineBreak.end)
+            );
 
             const hash: IRangedCellHash = {
                 hash: hashjs.sha1().update(hashedCode).digest('hex').substr(0, 12),
@@ -201,13 +226,14 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
                 trimmedRightCode: stripped.map((s) => s.replace(/[ \t\r]+\n$/g, '\n')).join(''),
                 realCode,
                 runtimeLine,
-                id: cell.id,
+                id: options.id,
                 timestamp: Date.now()
             };
 
             traceInfo(`Adding hash for ${expectedCount} = ${hash.hash} with ${stripped.length} lines`);
 
-            let list = this.hashes.get(cell.file);
+            const hashKey = options.file || '';
+            let list = this.hashes.get(hashKey);
             if (!list) {
                 list = [];
             }
@@ -230,15 +256,15 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
             if (!inserted) {
                 list.push(hash);
             }
-            this.hashes.set(cell.file, list);
+            this.hashes.set(hashKey, list);
 
             // Save a regex to find this file later when looking for
             // exceptions in output
-            if (!this.traceBackRegexes.has(cell.file)) {
-                const fileDisplayName = this.fs.getDisplayName(cell.file);
+            if (!this.traceBackRegexes.has(hashKey)) {
+                const fileDisplayName = this.fs.getDisplayName(hashKey);
                 const escaped = _escapeRegExp(fileDisplayName);
                 const fileMatchRegex = new RegExp(`\\[.*?;32m${escaped}`);
-                this.traceBackRegexes.set(cell.file, fileMatchRegex);
+                this.traceBackRegexes.set(hashKey, fileMatchRegex);
             }
 
             // Tell listeners we have new hashes.
@@ -250,14 +276,6 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
                 this.updateEventEmitter.fire();
             }
         }
-    }
-
-    public getExecutionCount(): number {
-        return this.executionCount;
-    }
-
-    public incExecutionCount(): void {
-        this.executionCount += 1;
     }
 
     private onChangedDocument(e: TextDocumentChangeEvent) {
@@ -272,14 +290,14 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         }
     }
 
-    private extractStrippedLines(cell: ICell): { stripped: string[]; trueStartLine: number } {
+    private extractStrippedLines(options: IExecuteOptions): { stripped: string[]; trueStartLine: number } {
         // Compute the code that will really be sent to jupyter
-        const lines = splitMultilineString(cell.data.source);
-        const stripped = this.extractExecutableLines(cell);
+        const lines = options.code.splitLines({ trim: false, removeEmptyEntries: false });
+        const stripped = this.extractExecutableLines(options.code, options.file);
 
         // Figure out our true 'start' line. This is what we need to tell the debugger is
         // actually the start of the code as that's what Jupyter will be getting.
-        let trueStartLine = cell.line;
+        let trueStartLine = options.line || 0;
         for (let i = 0; i < stripped.length; i += 1) {
             if (stripped[i] !== lines[i]) {
                 trueStartLine += i + 1;
@@ -355,20 +373,15 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
         });
     }
 
-    private adjustRuntimeForDebugging(
-        cell: ICell,
-        source: string[],
-        _cellStartOffset: number,
-        _cellEndOffset: number
-    ): number {
+    private adjustRuntimeForDebugging(options: IExecuteOptions, source: string[]): number {
         if (
             this.debugService.activeDebugSession &&
-            this.configService.getSettings(getCellResource(cell)).datascience.stopOnFirstLineWhileDebugging
+            this.configService.getSettings(options.file ? Uri.file(options.file) : undefined).datascience
+                .stopOnFirstLineWhileDebugging
         ) {
             // Inject the breakpoint line
             source.splice(0, 0, 'breakpoint()\n');
-            cell.data.source = source;
-            cell.extraLines = [0];
+            options.code = `breakpoint()\n${options.code}`;
 
             // Start on the second line
             return 2;
