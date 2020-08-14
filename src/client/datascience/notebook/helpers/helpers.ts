@@ -27,7 +27,7 @@ import { JupyterNotebookView } from '../constants';
 const vscodeNotebookEnums = require('vscode') as typeof import('vscode-proposed');
 // tslint:disable-next-line: no-require-imports
 import cloneDeep = require('lodash/cloneDeep');
-import { PythonInterpreter } from '../../../pythonEnvironments/info';
+import { PythonEnvironment } from '../../../pythonEnvironments/info';
 import { LiveKernelModel } from '../../jupyter/kernels/types';
 import { updateNotebookMetadata } from '../../notebookStorage/baseModel';
 import { VSCodeNotebookModel } from '../../notebookStorage/vscNotebookModel';
@@ -62,7 +62,7 @@ export function getNotebookMetadata(document: NotebookDocument): nbformat.INoteb
 export function updateKernelInNotebookMetadata(
     document: NotebookDocument,
     kernelSpec: IJupyterKernelSpec | LiveKernelModel | undefined,
-    interpreter: PythonInterpreter | undefined,
+    interpreter: PythonEnvironment | undefined,
     notebookContentProvider: INotebookContentProvider
 ) {
     // tslint:disable-next-line: no-any
@@ -117,9 +117,10 @@ export function notebookModelToVSCNotebookData(model: VSCodeNotebookModel): Note
     };
 }
 export function createCellFromVSCNotebookCell(vscCell: NotebookCell, model: INotebookModel): ICell {
+    let cell: ICell;
     if (vscCell.cellKind === vscodeNotebookEnums.CellKind.Markdown) {
         const data = createMarkdownCellFromVSCNotebookCell(vscCell);
-        return {
+        cell = {
             data,
             file: model.file.toString(),
             id: uuid(),
@@ -128,7 +129,7 @@ export function createCellFromVSCNotebookCell(vscCell: NotebookCell, model: INot
         };
     } else if (vscCell.language === 'raw') {
         const data = createRawCellFromVSCNotebookCell(vscCell);
-        return {
+        cell = {
             data,
             file: model.file.toString(),
             id: uuid(),
@@ -137,7 +138,7 @@ export function createCellFromVSCNotebookCell(vscCell: NotebookCell, model: INot
         };
     } else {
         const data = createCodeCellFromVSCNotebookCell(vscCell);
-        return {
+        cell = {
             data,
             file: model.file.toString(),
             id: uuid(),
@@ -145,6 +146,13 @@ export function createCellFromVSCNotebookCell(vscCell: NotebookCell, model: INot
             state: CellState.init
         };
     }
+    // Delete the `metadata.custom.vscode` property we added.
+    if ('vscode' in cell.data.metadata) {
+        const metadata = { ...cell.data.metadata };
+        delete metadata.vscode;
+        cell.data.metadata = metadata;
+    }
+    return cell;
 }
 
 /**

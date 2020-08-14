@@ -2,20 +2,8 @@
 // Licensed under the MIT License.
 
 'use strict';
-
-import type { CancellationToken, Event } from 'vscode';
-import type {
-    NotebookCell,
-    NotebookContentProvider as VSCodeNotebookContentProvider,
-    NotebookDocument
-} from 'vscode-proposed';
-
-export const INotebookExecutionService = Symbol('INotebookExecutionService');
-export interface INotebookExecutionService {
-    cancelPendingExecutions(document: NotebookDocument): void;
-    executeCell(document: NotebookDocument, cell: NotebookCell, token: CancellationToken): Promise<void>;
-    executeAllCells(document: NotebookDocument, token: CancellationToken): Promise<void>;
-}
+import { Event } from 'vscode';
+import type { NotebookContentProvider as VSCodeNotebookContentProvider, NotebookDocument } from 'vscode-proposed';
 
 export const INotebookContentProvider = Symbol('INotebookContentProvider');
 export interface INotebookContentProvider extends VSCodeNotebookContentProvider {

@@ -20,12 +20,17 @@ import { KernelSelectionProvider } from '../../../client/datascience/jupyter/ker
 import { KernelSelector } from '../../../client/datascience/jupyter/kernels/kernelSelector';
 import { KernelService } from '../../../client/datascience/jupyter/kernels/kernelService';
 import { KernelSwitcher } from '../../../client/datascience/jupyter/kernels/kernelSwitcher';
-import { IKernelSpecQuickPickItem } from '../../../client/datascience/jupyter/kernels/types';
+import {
+    IKernelSpecQuickPickItem,
+    KernelSpecConnectionMetadata,
+    LiveKernelConnectionMetadata,
+    PythonKernelConnectionMetadata
+} from '../../../client/datascience/jupyter/kernels/types';
 import { IKernelFinder } from '../../../client/datascience/kernel-launcher/types';
 import { NativeEditorProvider } from '../../../client/datascience/notebookStorage/nativeEditorProvider';
 import { IInteractiveWindowProvider, INotebookEditorProvider } from '../../../client/datascience/types';
 import { InterpreterService } from '../../../client/interpreter/interpreterService';
-import { InterpreterType } from '../../../client/pythonEnvironments/info';
+import { EnvironmentType } from '../../../client/pythonEnvironments/info';
 
 // tslint:disable: max-func-body-length no-any
 suite('DataScience - Notebook Commands', () => {
@@ -53,28 +58,30 @@ suite('DataScience - Notebook Commands', () => {
     };
     const selectedInterpreter = {
         path: '',
-        type: InterpreterType.Conda,
+        envType: EnvironmentType.Conda,
         architecture: Architecture.Unknown,
         sysPrefix: '',
         sysVersion: ''
     };
-    const remoteSelections: IKernelSpecQuickPickItem[] = [
+    const remoteSelections: IKernelSpecQuickPickItem<LiveKernelConnectionMetadata>[] = [
         {
             label: 'foobar',
             selection: {
                 kernelSpec: undefined,
                 kernelModel: remoteKernel,
-                interpreter: undefined
+                interpreter: undefined,
+                kind: 'live'
             }
         }
     ];
-    const localSelections: IKernelSpecQuickPickItem[] = [
+    const localSelections: IKernelSpecQuickPickItem<KernelSpecConnectionMetadata | PythonKernelConnectionMetadata>[] = [
         {
             label: 'foobar',
             selection: {
                 kernelSpec: localKernel,
                 kernelModel: undefined,
-                interpreter: undefined
+                interpreter: undefined,
+                kind: 'kernelSpec'
             }
         },
         {
@@ -82,7 +89,8 @@ suite('DataScience - Notebook Commands', () => {
             selection: {
                 kernelSpec: undefined,
                 kernelModel: undefined,
-                interpreter: selectedInterpreter
+                interpreter: selectedInterpreter,
+                kind: 'pythonInterpreter'
             }
         }
     ];

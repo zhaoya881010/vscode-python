@@ -17,7 +17,7 @@ import {
     NotifyIPyWidgeWidgetVersionNotSupportedAction
 } from '../../../datascience-ui/interactive-common/redux/reducers/types';
 import { Resource } from '../../common/types';
-import { PythonInterpreter } from '../../pythonEnvironments/info';
+import { PythonEnvironment } from '../../pythonEnvironments/info';
 import { NativeKeyboardCommandTelemetry, NativeMouseCommandTelemetry } from '../constants';
 import { WidgetScriptSource } from '../ipywidgets/types';
 import { LiveKernelModel } from '../jupyter/kernels/types';
@@ -343,7 +343,6 @@ export interface IRefreshVariablesRequest {
 export interface ILoadAllCells {
     cells: ICell[];
     isNotebookTrusted?: boolean;
-    shouldShowTrustMessage?: boolean;
 }
 
 export interface IScrollToCell {
@@ -506,7 +505,7 @@ export interface INotebookModelEditChange extends INotebookModelChange {
 
 export interface INotebookModelVersionChange extends INotebookModelChange {
     kind: 'version';
-    interpreter: PythonInterpreter | undefined;
+    interpreter: PythonEnvironment | undefined;
     kernelSpec: IJupyterKernelSpec | LiveKernelModel | undefined;
 }
 
