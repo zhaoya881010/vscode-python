@@ -14,10 +14,11 @@ import { traceError } from '../../common/logger';
 import { IConfigurationService } from '../../common/types';
 import * as localize from '../../common/utils/localize';
 import { EXTENSION_ROOT_DIR } from '../../constants';
-import { Identifiers, Settings } from '../constants';
+import { Settings } from '../constants';
 import {
-    ICell,
+    CellState,
     IDataScienceFileSystem,
+    IExecuteResult,
     IJupyterVariable,
     IJupyterVariables,
     IJupyterVariablesRequest,
@@ -170,59 +171,52 @@ export class OldJupyterVariables implements IJupyterVariables {
         });
 
         // Execute this on the notebook passed in.
-        const results = await notebook.execute(scriptText, Identifiers.EmptyFileName, 0, uuid(), undefined, true);
+        const results = await notebook.execute({ code: scriptText, id: uuid(), silent: true });
 
         // Results should be the updated variable.
         return this.deserializeJupyterResult<T>(results);
     }
 
-    private extractJupyterResultText(cells: ICell[]): string {
+    private extractJupyterResultText(result: IExecuteResult): string {
         // Verify that we have the correct cell type and outputs
-        if (cells.length > 0 && cells[0].data) {
-            const codeCell = cells[0].data as nbformat.ICodeCell;
-            if (codeCell.outputs.length > 0) {
-                const codeCellOutput = codeCell.outputs[0] as nbformat.IOutput;
-                if (
-                    codeCellOutput &&
-                    codeCellOutput.output_type === 'stream' &&
-                    codeCellOutput.name === 'stderr' &&
-                    codeCellOutput.hasOwnProperty('text')
-                ) {
-                    const resultString = codeCellOutput.text as string;
-                    // See if this the IOPUB data rate limit problem
-                    if (resultString.includes('iopub_data_rate_limit')) {
-                        throw new JupyterDataRateLimitError();
-                    } else {
-                        const error = localize.DataScience.jupyterGetVariablesExecutionError().format(resultString);
-                        traceError(error);
-                        throw new Error(error);
-                    }
-                }
-                if (codeCellOutput && codeCellOutput.output_type === 'execute_result') {
-                    const data = codeCellOutput.data;
-                    if (data && data.hasOwnProperty('text/plain')) {
-                        // tslint:disable-next-line:no-any
-                        return (data as any)['text/plain'];
-                    }
-                }
-                if (
-                    codeCellOutput &&
-                    codeCellOutput.output_type === 'stream' &&
-                    codeCellOutput.hasOwnProperty('text')
-                ) {
-                    return codeCellOutput.text as string;
-                }
-                if (
-                    codeCellOutput &&
-                    codeCellOutput.output_type === 'error' &&
-                    codeCellOutput.hasOwnProperty('traceback')
-                ) {
-                    const traceback: string[] = codeCellOutput.traceback as string[];
-                    const stripped = traceback.map(stripAnsi).join('\r\n');
-                    const error = localize.DataScience.jupyterGetVariablesExecutionError().format(stripped);
+        if (result.state !== CellState.init) {
+            const codeCellOutput = result.outputs[0] as nbformat.IOutput;
+            if (
+                codeCellOutput &&
+                codeCellOutput.output_type === 'stream' &&
+                codeCellOutput.name === 'stderr' &&
+                codeCellOutput.hasOwnProperty('text')
+            ) {
+                const resultString = codeCellOutput.text as string;
+                // See if this the IOPUB data rate limit problem
+                if (resultString.includes('iopub_data_rate_limit')) {
+                    throw new JupyterDataRateLimitError();
+                } else {
+                    const error = localize.DataScience.jupyterGetVariablesExecutionError().format(resultString);
                     traceError(error);
                     throw new Error(error);
                 }
+            }
+            if (codeCellOutput && codeCellOutput.output_type === 'execute_result') {
+                const data = codeCellOutput.data;
+                if (data && data.hasOwnProperty('text/plain')) {
+                    // tslint:disable-next-line:no-any
+                    return (data as any)['text/plain'];
+                }
+            }
+            if (codeCellOutput && codeCellOutput.output_type === 'stream' && codeCellOutput.hasOwnProperty('text')) {
+                return codeCellOutput.text as string;
+            }
+            if (
+                codeCellOutput &&
+                codeCellOutput.output_type === 'error' &&
+                codeCellOutput.hasOwnProperty('traceback')
+            ) {
+                const traceback: string[] = codeCellOutput.traceback as string[];
+                const stripped = traceback.map(stripAnsi).join('\r\n');
+                const error = localize.DataScience.jupyterGetVariablesExecutionError().format(stripped);
+                traceError(error);
+                throw new Error(error);
             }
         }
 
@@ -230,8 +224,8 @@ export class OldJupyterVariables implements IJupyterVariables {
     }
 
     // Pull our text result out of the Jupyter cell
-    private deserializeJupyterResult<T>(cells: ICell[]): T {
-        const text = this.extractJupyterResultText(cells);
+    private deserializeJupyterResult<T>(result: IExecuteResult): T {
+        const text = this.extractJupyterResultText(result);
         return JSON.parse(text) as T;
     }
 
@@ -359,7 +353,7 @@ export class OldJupyterVariables implements IJupyterVariables {
 
         // Now execute the query
         if (notebook && query) {
-            const cells = await notebook.execute(query.query, Identifiers.EmptyFileName, 0, uuid(), undefined, true);
+            const cells = await notebook.execute({ code: query.query, id: uuid(), silent: true });
             const text = this.extractJupyterResultText(cells);
 
             // Apply the expression to it

@@ -19,7 +19,7 @@ import { DataScienceFileSystem } from '../../../client/datascience/dataScienceFi
 import { CDNWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/cdnWidgetScriptSourceProvider';
 import { IPyWidgetScriptSource } from '../../../client/datascience/ipywidgets/ipyWidgetScriptSource';
 import { IWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/types';
-import { JupyterNotebookBase } from '../../../client/datascience/jupyter/jupyterNotebook';
+import { JupyterNotebook } from '../../../client/datascience/jupyter/jupyterNotebook';
 import {
     IDataScienceFileSystem,
     IJupyterConnection,
@@ -51,7 +51,7 @@ suite('DataScience - ipywidget - CDN', () => {
         return this.skip();
     });
     setup(() => {
-        notebook = mock(JupyterNotebookBase);
+        notebook = mock(JupyterNotebook);
         configService = mock(ConfigurationService);
         httpClient = mock(HttpClient);
         fileSystem = mock(DataScienceFileSystem);

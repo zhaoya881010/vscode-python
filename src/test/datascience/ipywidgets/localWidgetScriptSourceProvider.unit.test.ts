@@ -7,7 +7,7 @@ import { Uri } from 'vscode';
 import { DataScienceFileSystem } from '../../../client/datascience/dataScienceFileSystem';
 import { LocalWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/localWidgetScriptSourceProvider';
 import { IWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/types';
-import { JupyterNotebookBase } from '../../../client/datascience/jupyter/jupyterNotebook';
+import { JupyterNotebook } from '../../../client/datascience/jupyter/jupyterNotebook';
 import { IDataScienceFileSystem, ILocalResourceUriConverter, INotebook } from '../../../client/datascience/types';
 import { IInterpreterService } from '../../../client/interpreter/contracts';
 import { InterpreterService } from '../../../client/interpreter/interpreterService';
@@ -24,7 +24,7 @@ suite('DataScience - ipywidget - Local Widget Script Source', () => {
         return `vscodeUri://${uri.fsPath}`;
     }
     setup(() => {
-        notebook = mock(JupyterNotebookBase);
+        notebook = mock(JupyterNotebook);
         resourceConverter = mock<ILocalResourceUriConverter>();
         fs = mock(DataScienceFileSystem);
         interpreterService = mock(InterpreterService);

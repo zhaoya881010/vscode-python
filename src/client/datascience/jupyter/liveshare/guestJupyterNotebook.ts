@@ -57,7 +57,6 @@ export class GuestJupyterNotebook
     public get connection(): INotebookProviderConnection | undefined {
         return this._executionInfo?.connectionInfo;
     }
-    public kernelSocket = new Observable<KernelSocketInformation | undefined>();
 
     public get onSessionStatusChanged(): Event<ServerStatus> {
         if (!this.onStatusChangedEvent) {
@@ -69,6 +68,10 @@ export class GuestJupyterNotebook
     public get status(): ServerStatus {
         return ServerStatus.Idle;
     }
+    public get disposed() {
+        return false;
+    }
+    public kernelSocket = new Observable<KernelSocketInformation | undefined>();
 
     public onKernelChanged: Event<IJupyterKernelSpec | LiveKernelModel> = new EventEmitter<
         IJupyterKernelSpec | LiveKernelModel
@@ -76,9 +79,6 @@ export class GuestJupyterNotebook
     public onKernelRestarted = new EventEmitter<void>().event;
     public onKernelInterrupted = new EventEmitter<void>().event;
     public onDisposed = new EventEmitter<void>().event;
-    public get disposed() {
-        return false;
-    }
     private _jupyterLab?: typeof import('@jupyterlab/services');
     private responseQueue: ResponseQueue = new ResponseQueue();
     private onStatusChangedEvent: EventEmitter<ServerStatus> | undefined;
@@ -93,6 +93,10 @@ export class GuestJupyterNotebook
         private startTime: number
     ) {
         super(liveShare);
+    }
+
+    public async setFile(_file: string): Promise<void> {
+        // Don't need to handle this. Will be handled on host side
     }
 
     public shutdown(): Promise<void> {
@@ -198,6 +202,7 @@ export class GuestJupyterNotebook
             const result = await service.request(LiveShareCommands.getSysInfo, []);
             return result as string[];
         }
+        return [];
     }
 
     public async getCompletion(

@@ -6,13 +6,20 @@ import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import { TextDocument } from 'vscode';
 import { captureTelemetry, sendTelemetryEvent } from '.';
-import { splitMultilineString } from '../../datascience-ui/common';
+import { concatMultilineString } from '../../datascience-ui/common';
 import { IExtensionSingleActivationService } from '../activation/types';
 import { IDocumentManager } from '../common/application/types';
 import { isTestExecution } from '../common/constants';
 import '../common/extensions';
 import { noop } from '../common/utils/misc';
-import { ICell, INotebookEditor, INotebookEditorProvider, INotebookExecutionLogger } from '../datascience/types';
+import {
+    ICell,
+    IExecuteOptions,
+    IExecuteResult,
+    INotebookEditor,
+    INotebookEditorProvider,
+    INotebookExecutionLogger
+} from '../datascience/types';
 import { EventName } from './constants';
 
 /*
@@ -67,13 +74,13 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
     public onKernelRestarted() {
         // Do nothing on restarted
     }
-    public async preExecute(_cell: ICell, _silent: boolean): Promise<void> {
+    public async preExecute(_options: IExecuteOptions): Promise<void> {
         // Do nothing on pre execute
     }
-    public async postExecute(cell: ICell, silent: boolean): Promise<void> {
+    public async postExecute(options: IExecuteOptions, _result: IExecuteResult): Promise<void> {
         // Check for imports in the cell itself.
-        if (!silent && cell.data.cell_type === 'code') {
-            this.scheduleCheck(this.createCellKey(cell), this.checkCell.bind(this, cell));
+        if (!options.silent) {
+            this.scheduleCheck(this.createExecuteKey(options), this.checkCell.bind(this, options));
         }
     }
 
@@ -102,7 +109,7 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
             e.model.cells
                 .filter((c) => c.data.cell_type === 'code')
                 .forEach((c) => {
-                    const cellArray = this.getCellLines(c);
+                    const cellArray = this.getLines(concatMultilineString(c.data.source));
                     if (result.length < MAX_DOCUMENT_LINES) {
                         result = [...result, ...cellArray];
                     }
@@ -111,9 +118,9 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
         return result;
     }
 
-    private getCellLines(cell: ICell): (string | undefined)[] {
+    private getLines(code: string): string[] {
         // Split into multiple lines removing line feeds on the end.
-        return splitMultilineString(cell.data.source).map((s) => s.replace(/\n/g, ''));
+        return code.splitLines({ trim: true, removeEmptyEntries: true });
     }
 
     private onOpenedOrSavedDocument(document: TextDocument) {
@@ -152,14 +159,14 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
         }
     }
 
-    private createCellKey(cell: ICell): string {
-        return `${cell.file}${cell.id}`;
+    private createExecuteKey(options: IExecuteOptions): string {
+        return `${options.file}${options.id}`;
     }
 
     @captureTelemetry(EventName.HASHED_PACKAGE_PERF)
-    private checkCell(cell: ICell) {
-        this.pendingChecks.delete(this.createCellKey(cell));
-        const lines = this.getCellLines(cell);
+    private checkCell(options: IExecuteOptions) {
+        this.pendingChecks.delete(this.createExecuteKey(options));
+        const lines = this.getLines(options.code);
         this.lookForImports(lines);
     }
 

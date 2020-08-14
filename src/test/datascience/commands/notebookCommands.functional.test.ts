@@ -13,7 +13,7 @@ import { NotebookCommands } from '../../../client/datascience/commands/notebookC
 import { Commands } from '../../../client/datascience/constants';
 import { NotebookProvider } from '../../../client/datascience/interactive-common/notebookProvider';
 import { InteractiveWindowProvider } from '../../../client/datascience/interactive-window/interactiveWindowProvider';
-import { JupyterNotebookBase } from '../../../client/datascience/jupyter/jupyterNotebook';
+import { JupyterNotebook } from '../../../client/datascience/jupyter/jupyterNotebook';
 import { JupyterSessionManagerFactory } from '../../../client/datascience/jupyter/jupyterSessionManagerFactory';
 import { KernelDependencyService } from '../../../client/datascience/jupyter/kernels/kernelDependencyService';
 import { KernelSelectionProvider } from '../../../client/datascience/jupyter/kernels/kernelSelections';
@@ -189,7 +189,7 @@ suite('DataScience - Notebook Commands', () => {
             }
 
             function createNotebookMock() {
-                const obj = mock(JupyterNotebookBase);
+                const obj = mock(JupyterNotebook);
                 when((obj as any).then).thenReturn(undefined);
                 return obj;
             }

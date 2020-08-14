@@ -9,10 +9,9 @@ import { IDebugService } from '../../../client/common/application/types';
 import { IConfigurationService, IDataScienceSettings, IPythonSettings } from '../../../client/common/types';
 import { CellHashProvider } from '../../../client/datascience/editor-integration/cellhashprovider';
 import {
-    CellState,
-    ICell,
     ICellHashListener,
     IDataScienceFileSystem,
+    IExecuteOptions,
     IFileHashes
 } from '../../../client/datascience/types';
 import { MockDocumentManager } from '../mockDocumentManager';
@@ -63,20 +62,13 @@ suite('CellHashProvider Unit Tests', () => {
     }
 
     function sendCode(code: string, line: number, file?: string): Promise<void> {
-        const cell: ICell = {
+        const options: IExecuteOptions = {
+            code,
             file: Uri.file(file ? file : 'foo.py').fsPath,
             line,
-            data: {
-                source: code,
-                cell_type: 'code',
-                metadata: {},
-                outputs: [],
-                execution_count: 1
-            },
-            id: '1',
-            state: CellState.init
+            id: '1'
         };
-        return hashProvider.preExecute(cell, false);
+        return hashProvider.preExecute(options);
     }
 
     test('Add a cell and edit it', async () => {

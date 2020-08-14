@@ -138,7 +138,7 @@ suite('DataScience gotocell tests', () => {
             const codeLens = runLens[pos];
             const code = doc.getText(codeLens.range);
             const startLine = codeLens.range.start.line;
-            const output = await notebook.execute(code, doc.fileName, startLine, uuid());
+            const output = await notebook.execute({ code, file: doc.fileName, line: startLine, id: uuid() });
             visibleCells = visibleCells.concat(output);
             // Trick the codeLensFactory into having the cells
             const listener = (codeLensFactory as any) as IInteractiveWindowListener;

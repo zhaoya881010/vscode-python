@@ -19,7 +19,7 @@ import { CDNWidgetScriptSourceProvider } from '../../../client/datascience/ipywi
 import { IPyWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/ipyWidgetScriptSourceProvider';
 import { LocalWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/localWidgetScriptSourceProvider';
 import { RemoteWidgetScriptSourceProvider } from '../../../client/datascience/ipywidgets/remoteWidgetScriptSourceProvider';
-import { JupyterNotebookBase } from '../../../client/datascience/jupyter/jupyterNotebook';
+import { JupyterNotebook } from '../../../client/datascience/jupyter/jupyterNotebook';
 import { IJupyterConnection, ILocalResourceUriConverter, INotebook } from '../../../client/datascience/types';
 import { InterpreterService } from '../../../client/interpreter/interpreterService';
 
@@ -35,7 +35,7 @@ suite('DataScience - ipywidget - Widget Script Source Provider', () => {
     let onDidChangeWorkspaceSettings: EventEmitter<ConfigurationChangeEvent>;
     let userSelectedOkOrDoNotShowAgainInPrompt: PersistentState<boolean>;
     setup(() => {
-        notebook = mock(JupyterNotebookBase);
+        notebook = mock(JupyterNotebook);
         configService = mock(ConfigurationService);
         appShell = mock(ApplicationShell);
         workspaceService = mock(WorkspaceService);

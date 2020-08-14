@@ -12,21 +12,22 @@ import { traceError } from '../../../common/logger';
 import { IConfigurationService, IDisposableRegistry, Resource } from '../../../common/types';
 import { createDeferred } from '../../../common/utils/async';
 import { Identifiers, LiveShare, LiveShareCommands } from '../../constants';
-import { IExecuteInfo } from '../../interactive-common/interactiveWindowTypes';
 import {
     ICell,
     IDataScienceFileSystem,
+    IExecuteOptions,
+    IExecuteResult,
     IJupyterSession,
     INotebook,
     INotebookExecutionInfo,
     INotebookExecutionLogger,
     InterruptResult
 } from '../../types';
-import { JupyterNotebookBase } from '../jupyterNotebook';
+import { JupyterNotebook } from '../jupyterNotebook';
 import { LiveShareParticipantHost } from './liveShareParticipantMixin';
 import { ResponseQueue } from './responseQueue';
 import { IRoleBasedObject } from './roleBasedFactory';
-import { IExecuteObservableResponse, IResponseMapping, IServerResponse, ServerResponseType } from './types';
+import { IResponseMapping, IServerResponse, ServerResponseType } from './types';
 
 // tslint:disable-next-line: no-require-imports
 import cloneDeep = require('lodash/cloneDeep');
@@ -34,7 +35,7 @@ import cloneDeep = require('lodash/cloneDeep');
 // tslint:disable:no-any
 
 export class HostJupyterNotebook
-    extends LiveShareParticipantHost(JupyterNotebookBase, LiveShare.JupyterNotebookSharedService)
+    extends LiveShareParticipantHost(JupyterNotebook, LiveShare.JupyterNotebookSharedService)
     implements IRoleBasedObject, INotebook {
     private catchupResponses: ResponseQueue = new ResponseQueue();
     private localResponses: ResponseQueue = new ResponseQueue();
@@ -42,7 +43,7 @@ export class HostJupyterNotebook
     private catchupPendingCount: number = 0;
     private isDisposed = false;
     constructor(
-        liveShare: ILiveShareApi,
+        _liveShare: ILiveShareApi,
         session: IJupyterSession,
         configService: IConfigurationService,
         disposableRegistry: IDisposableRegistry,
@@ -56,7 +57,6 @@ export class HostJupyterNotebook
         fs: IDataScienceFileSystem
     ) {
         super(
-            liveShare,
             session,
             configService,
             disposableRegistry,
@@ -117,7 +117,7 @@ export class HostJupyterNotebook
                 // Notifications are always objects.
                 service.onNotify(LiveShareCommands.catchupRequest, (args: object) => this.onCatchupRequest(args));
                 service.onNotify(LiveShareCommands.executeObservable, (args: object) =>
-                    this.onExecuteObservableRequest(args)
+                    this.onExecuteObservableRequest(args as IExecuteOptions)
                 );
             }
         }
@@ -144,23 +144,17 @@ export class HostJupyterNotebook
         this.requestLog.delete(id);
     }
 
-    public executeObservable(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        silent?: boolean
-    ): Observable<ICell[]> {
+    public executeObservable(options: IExecuteOptions): Observable<IExecuteResult> {
         // See if this has already been asked for not
-        if (this.requestLog.has(id)) {
+        if (this.requestLog.has(options.id)) {
             // This must be a local call that occurred after a guest call. Just
             // use the local responses to return the results.
-            return this.localResponses.waitForObservable(code, id);
+            return this.localResponses.waitForObservable(options.code, options.id);
         } else {
             // Otherwise make a new request and save response in the catchup list. THis is a
             // a request that came directly from the host so the host will be listening to the observable returned
             // and we don't need to save the response in the local queue.
-            return this.makeObservableRequest(code, file, line, id, silent, [this.catchupResponses]);
+            return this.makeObservableRequest(options, [this.catchupResponses]);
         }
     }
 
@@ -182,24 +176,17 @@ export class HostJupyterNotebook
         }
     }
 
-    private makeRequest(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        silent: boolean | undefined,
-        responseQueues: ResponseQueue[]
-    ): Promise<ICell[]> {
+    private makeRequest(options: IExecuteOptions, responseQueues: ResponseQueue[]): Promise<IExecuteResult> {
         // Create a deferred that we'll fire when we're done
-        const deferred = createDeferred<ICell[]>();
+        const deferred = createDeferred<IExecuteResult>();
 
         // Attempt to evaluate this cell in the jupyter notebook
-        const observable = this.makeObservableRequest(code, file, line, id, silent, responseQueues);
-        let output: ICell[];
+        const observable = this.makeObservableRequest(options, responseQueues);
+        let output: IExecuteResult;
 
         observable.subscribe(
-            (cells: ICell[]) => {
-                output = cells;
+            (result: IExecuteResult) => {
+                output = result;
             },
             (error) => {
                 deferred.reject(error);
@@ -214,16 +201,12 @@ export class HostJupyterNotebook
     }
 
     private makeObservableRequest(
-        code: string,
-        file: string,
-        line: number,
-        id: string,
-        silent: boolean | undefined,
+        options: IExecuteOptions,
         responseQueues: ResponseQueue[]
-    ): Observable<ICell[]> {
+    ): Observable<IExecuteResult> {
         try {
-            this.requestLog.set(id, Date.now());
-            const inner = super.executeObservable(code, file, line, id, silent);
+            this.requestLog.set(options.id, Date.now());
+            const inner = super.executeObservable(options);
 
             // Cleanup old requests
             const now = Date.now();
@@ -234,7 +217,7 @@ export class HostJupyterNotebook
             }
 
             // Wrap the observable returned to send the responses to the guest(s) too.
-            return this.postObservableResult(code, inner, id, responseQueues);
+            return this.postObservableResult(options.code, inner, options.id, responseQueues);
         } catch (exc) {
             this.postException(exc, responseQueues);
             throw exc;
@@ -272,7 +255,7 @@ export class HostJupyterNotebook
             const service = await this.waitForService();
             if (service) {
                 // Send results for all responses that are left.
-                this.catchupResponses.send(service, this.translateForGuest.bind(this));
+                this.catchupResponses.send(service, (r) => r);
 
                 // Eliminate old responses if possible.
                 this.catchupPendingCount -= 1;
@@ -283,24 +266,20 @@ export class HostJupyterNotebook
         }
     }
 
-    private onExecuteObservableRequest(args: object) {
+    private onExecuteObservableRequest(options: IExecuteOptions) {
         // See if we started this execute or not already.
-        if (args.hasOwnProperty('code')) {
-            const obj = args as IExecuteInfo;
-            if (!this.requestLog.has(obj.id)) {
+        if (options.code) {
+            if (!this.requestLog.has(options.id)) {
                 try {
                     // Convert the file name if necessary
-                    const uri = vscode.Uri.parse(`vsls:${obj.file}`);
+                    const uri = vscode.Uri.parse(`vsls:${options.file}`);
                     const file =
-                        this.finishedApi && obj.file !== Identifiers.EmptyFileName
+                        this.finishedApi && options.file && options.file !== Identifiers.EmptyFileName
                             ? this.finishedApi.convertSharedUriToLocal(uri).fsPath
-                            : obj.file;
+                            : options.file;
 
                     // We need the results of this execute to end up in both the guest responses and the local responses
-                    this.makeRequest(obj.code, file, obj.line, obj.id, false, [
-                        this.localResponses,
-                        this.catchupResponses
-                    ]).ignoreErrors();
+                    this.makeRequest({ ...options, file }, [this.localResponses, this.catchupResponses]).ignoreErrors();
                 } catch (e) {
                     traceError(e);
                 }
@@ -310,22 +289,22 @@ export class HostJupyterNotebook
 
     private postObservableResult(
         code: string,
-        observable: Observable<ICell[]>,
+        observable: Observable<IExecuteResult>,
         id: string,
         responseQueues: ResponseQueue[]
-    ): Observable<ICell[]> {
+    ): Observable<IExecuteResult> {
         return new Observable((subscriber) => {
             let pos = 0;
 
             // Listen to all of the events on the observable passed in.
             observable.subscribe(
-                (cells) => {
+                (result) => {
                     // Forward to the next listener
-                    subscriber.next(cells);
+                    subscriber.next(result);
 
                     // Send across to the guest side
                     try {
-                        this.postObservableNext(code, pos, cells, id, responseQueues);
+                        this.postObservableNext(code, pos, result, id, responseQueues);
                         pos += 1;
                     } catch (e) {
                         subscriber.error(e);
@@ -344,20 +323,17 @@ export class HostJupyterNotebook
         });
     }
 
-    private translateForGuest = (r: IServerResponse): IServerResponse => {
-        // Remap the cell paths
-        const er = r as IExecuteObservableResponse;
-        if (er && er.cells) {
-            return { cells: er.cells.map(this.translateCellForGuest, this), ...er };
-        }
-        return r;
-    };
-
-    private postObservableNext(code: string, pos: number, cells: ICell[], id: string, responseQueues: ResponseQueue[]) {
+    private postObservableNext(
+        code: string,
+        pos: number,
+        result: IExecuteResult,
+        id: string,
+        responseQueues: ResponseQueue[]
+    ) {
         this.postResult(
             ServerResponseType.ExecuteObservable,
-            { code, pos, type: ServerResponseType.ExecuteObservable, cells, id, time: Date.now() },
-            this.translateForGuest,
+            { code, pos, type: ServerResponseType.ExecuteObservable, result, id, time: Date.now() },
+            (r) => r,
             responseQueues
         );
     }
@@ -365,8 +341,8 @@ export class HostJupyterNotebook
     private postObservableComplete(code: string, pos: number, id: string, responseQueues: ResponseQueue[]) {
         this.postResult(
             ServerResponseType.ExecuteObservable,
-            { code, pos, type: ServerResponseType.ExecuteObservable, cells: undefined, id, time: Date.now() },
-            this.translateForGuest,
+            { code, pos, type: ServerResponseType.ExecuteObservable, result: undefined, id, time: Date.now() },
+            (r) => r,
             responseQueues
         );
     }

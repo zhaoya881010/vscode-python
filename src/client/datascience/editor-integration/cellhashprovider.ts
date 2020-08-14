@@ -226,7 +226,7 @@ export class CellHashProvider implements ICellHashProvider, INotebookExecutionLo
                 trimmedRightCode: stripped.map((s) => s.replace(/[ \t\r]+\n$/g, '\n')).join(''),
                 realCode,
                 runtimeLine,
-                id: options.id,
+                id: options.id!,
                 timestamp: Date.now()
             };
 

@@ -16,7 +16,7 @@ import { Architecture } from '../../../../client/common/utils/platform';
 import { EXTENSION_ROOT_DIR } from '../../../../client/constants';
 import { JupyterSessionStartError } from '../../../../client/datascience/baseJupyterSession';
 import { NotebookProvider } from '../../../../client/datascience/interactive-common/notebookProvider';
-import { JupyterNotebookBase } from '../../../../client/datascience/jupyter/jupyterNotebook';
+import { JupyterNotebook } from '../../../../client/datascience/jupyter/jupyterNotebook';
 import { KernelDependencyService } from '../../../../client/datascience/jupyter/kernels/kernelDependencyService';
 import { KernelSelector, KernelSpecInterpreter } from '../../../../client/datascience/jupyter/kernels/kernelSelector';
 import { KernelSwitcher } from '../../../../client/datascience/jupyter/kernels/kernelSwitcher';
@@ -58,7 +58,7 @@ suite('DataScience - Kernel Switcher', () => {
             kernelModel: currentKernel,
             interpreter: selectedInterpreter
         };
-        notebook = mock(JupyterNotebookBase);
+        notebook = mock(JupyterNotebook);
         configService = mock(ConfigurationService);
         kernelSelector = mock(KernelSelector);
         appShell = mock(ApplicationShell);

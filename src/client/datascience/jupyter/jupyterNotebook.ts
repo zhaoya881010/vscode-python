@@ -147,7 +147,7 @@ class ExecutionSubscriber {
 // This code is based on the examples here:
 // https://www.npmjs.com/package/@jupyterlab/services
 
-export class JupyterNotebookBase implements INotebook {
+export class JupyterNotebook implements INotebook {
     private sessionStartTime: number;
     private pendingExecutions: ExecutionSubscriber[] = [];
     private ranInitialSetup = false;

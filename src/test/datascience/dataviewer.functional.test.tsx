@@ -4,7 +4,6 @@
 // tslint:disable:max-func-body-length trailing-comma no-any no-multiline-string
 import '../../client/common/extensions';
 
-import { nbformat } from '@jupyterlab/coreutils';
 import * as assert from 'assert';
 import { mount, ReactWrapper } from 'enzyme';
 import { parse } from 'node-html-parser';
@@ -12,7 +11,6 @@ import * as React from 'react';
 import * as uuid from 'uuid/v4';
 import { Disposable } from 'vscode';
 
-import { Identifiers } from '../../client/datascience/constants';
 import {
     DataViewerMessages,
     IDataViewer,
@@ -136,12 +134,9 @@ suite('DataScience DataViewer tests', () => {
             identity: getDefaultInteractiveIdentity()
         });
         if (notebook) {
-            const cells = await notebook.execute(code, Identifiers.EmptyFileName, 0, uuid());
-            assert.equal(cells.length, 1, `Wrong number of cells returned`);
-            assert.equal(cells[0].data.cell_type, 'code', `Wrong type of cell returned`);
-            const cell = cells[0].data as nbformat.ICodeCell;
-            if (cell.outputs.length > 0) {
-                const error = cell.outputs[0].evalue;
+            const result = await notebook.execute({ code, id: uuid() });
+            if (result.outputs.length > 0) {
+                const error = result.outputs[0].evalue;
                 if (error) {
                     assert.fail(`Unexpected error: ${error}`);
                 }

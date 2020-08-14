@@ -8,11 +8,12 @@ import * as path from 'path';
 import { Uri } from 'vscode';
 
 import { IWorkspaceService } from '../../common/application/types';
-import { Resource } from '../../common/types';
+import { IDataScienceSettings, Resource } from '../../common/types';
 import { noop } from '../../common/utils/misc';
 import { SystemVariables } from '../../common/variables/systemVariables';
+import { generateCells } from '../cellFactory';
 import { getJupyterConnectionDisplayName } from '../jupyter/jupyterConnection';
-import { IJupyterConnection, IJupyterServerUri } from '../types';
+import { ICell, IJupyterConnection, IJupyterServerUri, INotebook } from '../types';
 
 export function expandWorkingDir(
     workingDir: string | undefined,
@@ -89,4 +90,36 @@ export async function computeWorkingDirectory(resource: Resource, workspace: IWo
             : workspace.getWorkspaceFolder(resource)?.uri.fsPath || process.cwd();
 
     return workingDirectory;
+}
+
+export async function generateExecutedCells(
+    settings: IDataScienceSettings | undefined,
+    notebook: INotebook | undefined,
+    code: string,
+    file: string,
+    line: number,
+    id: string
+): Promise<ICell[]> {
+    const rangeCells = generateCells(settings, code, file, line, true, id);
+    return rangeCells.flatMap(
+        async (c): Promise<ICell> => {
+            if (c.data.cell_type === 'code' && notebook) {
+                const results = await notebook.execute(
+                    { code: concatMultilineString(c.data.source), id: c.id },
+                    cancelToken
+                );
+                return {
+                    ...c,
+                    state: results.state,
+                    data: {
+                        ...c.data,
+                        outputs: results.outputs,
+                        execution_count: results.execution_count
+                    }
+                };
+            } else {
+                return c;
+            }
+        }
+    );
 }
