@@ -53,16 +53,37 @@ export function isJupyterNotebook(option: NotebookDocument | string) {
     }
 }
 
+function getMajorityLanguage(document: NotebookDocument): string {
+    const languageCount = new Map<string, number>();
+    let largestCount = 0;
+    let majority: string = '';
+    document.cells.forEach((c) => {
+        if (c.language) {
+            let number = languageCount.get(c.language) || 0;
+            number = number += 1;
+            languageCount.set(c.language, number);
+            if (number > largestCount) {
+                largestCount = number;
+                majority = c.language;
+            }
+        }
+    });
+    return majority;
+}
+
 export function getNotebookMetadata(document: NotebookDocument): nbformat.INotebookMetadata | undefined {
     // tslint:disable-next-line: no-any
     let notebookContent: Partial<nbformat.INotebookContent> = document.metadata.custom as any;
 
     // If language isn't specified in the metadata, at least specify that
-    if (!notebookContent?.metadata?.language_info?.name) {
+    if (!notebookContent?.metadata?.language_info?.name && document.cells.length) {
+        const majorityLanguage = getMajorityLanguage(document);
         const content = notebookContent || {};
         const metadata = content.metadata || { orig_nbformat: 3, language_info: {} };
-        const language_info = { ...metadata.language_info, name: document.languages[0] };
-        notebookContent = { ...content, metadata: { ...metadata, language_info } };
+        const language_info = { ...metadata.language_info, name: majorityLanguage };
+        // Fix nyc problem
+        // tslint:disable-next-line: no-any
+        notebookContent = { ...content, metadata: { ...metadata, language_info } } as any;
     }
     return notebookContent?.metadata;
 }

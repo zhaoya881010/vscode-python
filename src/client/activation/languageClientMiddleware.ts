@@ -65,6 +65,7 @@ import { IConfigurationService, IExperimentsManager } from '../common/types';
 import { StopWatch } from '../common/utils/stopWatch';
 import { sendTelemetryEvent } from '../telemetry';
 import { EventName } from '../telemetry/constants';
+import { NotebookMiddlewareAddon } from './notebookMiddlewareAddon';
 import { LanguageServerType } from './types';
 
 // Only send 100 events per hour.
@@ -119,6 +120,7 @@ export class LanguageClientMiddleware implements Middleware {
         }
         // tslint:enable:no-any
     };
+    private notebookAddon = new NotebookMiddlewareAddon();
 
     private connected = false; // Default to not forwarding to VS code.
 
@@ -165,7 +167,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideCompletionItemsSignature
     ) {
         if (this.connected) {
-            return next(document, position, context, token);
+            return this.notebookAddon.provideCompletionItem(document, position, context, token, next);
         }
     }
 
@@ -177,7 +179,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideHoverSignature
     ) {
         if (this.connected) {
-            return next(document, position, token);
+            return this.notebookAddon.provideHover(document, position, token, next);
         }
     }
 
@@ -187,7 +189,7 @@ export class LanguageClientMiddleware implements Middleware {
             const filePath = uri.fsPath;
             const baseName = filePath ? path.basename(filePath) : undefined;
             if (!baseName || !baseName.startsWith(HiddenFilePrefix)) {
-                next(uri, diagnostics);
+                this.notebookAddon.handleDiagnostics(uri, diagnostics, next);
             }
         }
     }
@@ -199,7 +201,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ResolveCompletionItemSignature
     ): ProviderResult<CompletionItem> {
         if (this.connected) {
-            return next(item, token);
+            return this.notebookAddon.resolveCompletionItem(item, token, next);
         }
     }
 
@@ -212,7 +214,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideSignatureHelpSignature
     ): ProviderResult<SignatureHelp> {
         if (this.connected) {
-            return next(document, position, context, token);
+            return this.notebookAddon.provideSignatureHelp(document, position, context, token, next);
         }
     }
 
@@ -224,7 +226,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDefinitionSignature
     ): ProviderResult<Definition | DefinitionLink[]> {
         if (this.connected) {
-            return next(document, position, token);
+            return this.notebookAddon.provideDefinition(document, position, token, next);
         }
     }
 
@@ -239,7 +241,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideReferencesSignature
     ): ProviderResult<Location[]> {
         if (this.connected) {
-            return next(document, position, options, token);
+            return this.notebookAddon.provideReferences(document, position, options, token, next);
         }
     }
 
@@ -250,7 +252,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDocumentHighlightsSignature
     ): ProviderResult<DocumentHighlight[]> {
         if (this.connected) {
-            return next(document, position, token);
+            return this.notebookAddon.provideDocumentHighlights(document, position, token, next);
         }
     }
 
@@ -261,7 +263,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDocumentSymbolsSignature
     ): ProviderResult<SymbolInformation[] | DocumentSymbol[]> {
         if (this.connected) {
-            return next(document, token);
+            return this.notebookAddon.provideDocumentSymbols(document, token, next);
         }
     }
 
@@ -272,7 +274,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideWorkspaceSymbolsSignature
     ): ProviderResult<SymbolInformation[]> {
         if (this.connected) {
-            return next(query, token);
+            return this.notebookAddon.provideWorkspaceSymbols(query, token, next);
         }
     }
 
@@ -285,7 +287,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideCodeActionsSignature
     ): ProviderResult<(Command | CodeAction)[]> {
         if (this.connected) {
-            return next(document, range, context, token);
+            return this.notebookAddon.provideCodeActions(document, range, context, token, next);
         }
     }
 
@@ -296,7 +298,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideCodeLensesSignature
     ): ProviderResult<CodeLens[]> {
         if (this.connected) {
-            return next(document, token);
+            return this.notebookAddon.provideCodeLenses(document, token, next);
         }
     }
 
@@ -307,7 +309,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ResolveCodeLensSignature
     ): ProviderResult<CodeLens> {
         if (this.connected) {
-            return next(codeLens, token);
+            return this.notebookAddon.resolveCodeLens(codeLens, token, next);
         }
     }
 
@@ -318,7 +320,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDocumentFormattingEditsSignature
     ): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return next(document, options, token);
+            return this.notebookAddon.provideDocumentFormattingEdits(document, options, token, next);
         }
     }
 
@@ -330,7 +332,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDocumentRangeFormattingEditsSignature
     ): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return next(document, range, options, token);
+            return this.notebookAddon.provideDocumentRangeFormattingEdits(document, range, options, token, next);
         }
     }
 
@@ -343,7 +345,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideOnTypeFormattingEditsSignature
     ): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return next(document, position, ch, options, token);
+            return this.notebookAddon.provideOnTypeFormattingEdits(document, position, ch, options, token, next);
         }
     }
 
@@ -356,7 +358,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideRenameEditsSignature
     ): ProviderResult<WorkspaceEdit> {
         if (this.connected) {
-            return next(document, position, newName, token);
+            return this.notebookAddon.provideRenameEdits(document, position, newName, token, next);
         }
     }
 
@@ -374,7 +376,7 @@ export class LanguageClientMiddleware implements Middleware {
           }
     > {
         if (this.connected) {
-            return next(document, position, token);
+            return this.notebookAddon.prepareRename(document, position, token, next);
         }
     }
 
@@ -384,7 +386,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDocumentLinksSignature
     ): ProviderResult<DocumentLink[]> {
         if (this.connected) {
-            return next(document, token);
+            return this.notebookAddon.provideDocumentLinks(document, token, next);
         }
     }
 
@@ -394,7 +396,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ResolveDocumentLinkSignature
     ): ProviderResult<DocumentLink> {
         if (this.connected) {
-            return next(link, token);
+            return this.notebookAddon.resolveDocumentLink(link, token, next);
         }
     }
 
@@ -406,7 +408,7 @@ export class LanguageClientMiddleware implements Middleware {
         next: ProvideDeclarationSignature
     ): ProviderResult<VDeclaration> {
         if (this.connected) {
-            return next(document, position, token);
+            return this.notebookAddon.provideDeclaration(document, position, token, next);
         }
     }
 }
