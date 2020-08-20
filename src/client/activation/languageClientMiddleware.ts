@@ -4,10 +4,8 @@ import * as path from 'path';
 import {
     CancellationToken,
     CodeAction,
-    CodeActionContext,
     CodeLens,
     Command,
-    CompletionContext,
     CompletionItem,
     Declaration as VDeclaration,
     Definition,
@@ -16,16 +14,10 @@ import {
     DocumentHighlight,
     DocumentLink,
     DocumentSymbol,
-    FormattingOptions,
     Location,
-    Position,
-    Position as VPosition,
     ProviderResult,
     Range,
-    SignatureHelp,
-    SignatureHelpContext,
     SymbolInformation,
-    TextDocument,
     TextEdit,
     Uri,
     WorkspaceEdit
@@ -36,31 +28,15 @@ import {
     HandleDiagnosticsSignature,
     HandlerResult,
     Middleware,
-    PrepareRenameSignature,
-    ProvideCodeActionsSignature,
-    ProvideCodeLensesSignature,
-    ProvideCompletionItemsSignature,
-    ProvideDefinitionSignature,
-    ProvideDocumentFormattingEditsSignature,
-    ProvideDocumentHighlightsSignature,
-    ProvideDocumentLinksSignature,
-    ProvideDocumentRangeFormattingEditsSignature,
-    ProvideDocumentSymbolsSignature,
-    ProvideHoverSignature,
-    ProvideOnTypeFormattingEditsSignature,
-    ProvideReferencesSignature,
-    ProvideRenameEditsSignature,
-    ProvideSignatureHelpSignature,
-    ProvideWorkspaceSymbolsSignature,
-    ResolveCodeLensSignature,
-    ResolveCompletionItemSignature,
-    ResolveDocumentLinkSignature,
     ResponseError
 } from 'vscode-languageclient/node';
 
-import { ProvideDeclarationSignature } from 'vscode-languageclient/lib/common/declaration';
 import { HiddenFilePrefix } from '../common/constants';
-import { CollectLSRequestTiming, CollectNodeLSRequestTiming } from '../common/experiments/groups';
+import {
+    CollectLSRequestTiming,
+    CollectNodeLSRequestTiming,
+    NotebookEditorSupport
+} from '../common/experiments/groups';
 import { IConfigurationService, IExperimentsManager } from '../common/types';
 import { StopWatch } from '../common/utils/stopWatch';
 import { sendTelemetryEvent } from '../telemetry';
@@ -120,7 +96,7 @@ export class LanguageClientMiddleware implements Middleware {
         }
         // tslint:enable:no-any
     };
-    private notebookAddon = new NotebookMiddlewareAddon();
+    private notebookAddon: NotebookMiddlewareAddon | undefined;
 
     private connected = false; // Default to not forwarding to VS code.
 
@@ -148,6 +124,9 @@ export class LanguageClientMiddleware implements Middleware {
             this.eventName = undefined;
             experimentsManager.sendTelemetryIfInExperiment(group.control);
         }
+        if (experimentsManager.inExperiment(NotebookEditorSupport.nativeNotebookExperiment)) {
+            this.notebookAddon = new NotebookMiddlewareAddon();
+        }
     }
 
     public connect() {
@@ -159,216 +138,126 @@ export class LanguageClientMiddleware implements Middleware {
     }
 
     @captureTelemetryForLSPMethod('textDocument/completion', debounceFrequentCall)
-    public provideCompletionItem(
-        document: TextDocument,
-        position: Position,
-        context: CompletionContext,
-        token: CancellationToken,
-        next: ProvideCompletionItemsSignature
-    ) {
+    public provideCompletionItem() {
         if (this.connected) {
-            return this.notebookAddon.provideCompletionItem(document, position, context, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/hover', debounceFrequentCall)
-    public provideHover(
-        document: TextDocument,
-        position: Position,
-        token: CancellationToken,
-        next: ProvideHoverSignature
-    ) {
+    public provideHover() {
         if (this.connected) {
-            return this.notebookAddon.provideHover(document, position, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public handleDiagnostics(uri: Uri, diagnostics: Diagnostic[], next: HandleDiagnosticsSignature) {
+    public handleDiagnostics(uri: Uri, _diagnostics: Diagnostic[], _next: HandleDiagnosticsSignature) {
         if (this.connected) {
             // Skip sending if this is a special file.
             const filePath = uri.fsPath;
             const baseName = filePath ? path.basename(filePath) : undefined;
             if (!baseName || !baseName.startsWith(HiddenFilePrefix)) {
-                this.notebookAddon.handleDiagnostics(uri, diagnostics, next);
+                return this.callNext(arguments);
             }
         }
     }
 
     @captureTelemetryForLSPMethod('completionItem/resolve', debounceFrequentCall)
-    public resolveCompletionItem(
-        item: CompletionItem,
-        token: CancellationToken,
-        next: ResolveCompletionItemSignature
-    ): ProviderResult<CompletionItem> {
+    public resolveCompletionItem(): ProviderResult<CompletionItem> {
         if (this.connected) {
-            return this.notebookAddon.resolveCompletionItem(item, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/signatureHelp', debounceFrequentCall)
-    public provideSignatureHelp(
-        document: TextDocument,
-        position: Position,
-        context: SignatureHelpContext,
-        token: CancellationToken,
-        next: ProvideSignatureHelpSignature
-    ): ProviderResult<SignatureHelp> {
+    public provideSignatureHelp() {
         if (this.connected) {
-            return this.notebookAddon.provideSignatureHelp(document, position, context, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/definition', debounceRareCall)
-    public provideDefinition(
-        document: TextDocument,
-        position: Position,
-        token: CancellationToken,
-        next: ProvideDefinitionSignature
-    ): ProviderResult<Definition | DefinitionLink[]> {
+    public provideDefinition(): ProviderResult<Definition | DefinitionLink[]> {
         if (this.connected) {
-            return this.notebookAddon.provideDefinition(document, position, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/references', debounceRareCall)
-    public provideReferences(
-        document: TextDocument,
-        position: Position,
-        options: {
-            includeDeclaration: boolean;
-        },
-        token: CancellationToken,
-        next: ProvideReferencesSignature
-    ): ProviderResult<Location[]> {
+    public provideReferences(): ProviderResult<Location[]> {
         if (this.connected) {
-            return this.notebookAddon.provideReferences(document, position, options, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public provideDocumentHighlights(
-        document: TextDocument,
-        position: Position,
-        token: CancellationToken,
-        next: ProvideDocumentHighlightsSignature
-    ): ProviderResult<DocumentHighlight[]> {
+    public provideDocumentHighlights(): ProviderResult<DocumentHighlight[]> {
         if (this.connected) {
-            return this.notebookAddon.provideDocumentHighlights(document, position, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/documentSymbol', debounceFrequentCall)
-    public provideDocumentSymbols(
-        document: TextDocument,
-        token: CancellationToken,
-        next: ProvideDocumentSymbolsSignature
-    ): ProviderResult<SymbolInformation[] | DocumentSymbol[]> {
+    public provideDocumentSymbols(): ProviderResult<SymbolInformation[] | DocumentSymbol[]> {
         if (this.connected) {
-            return this.notebookAddon.provideDocumentSymbols(document, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('workspace/symbol', debounceRareCall)
-    public provideWorkspaceSymbols(
-        query: string,
-        token: CancellationToken,
-        next: ProvideWorkspaceSymbolsSignature
-    ): ProviderResult<SymbolInformation[]> {
+    public provideWorkspaceSymbols(): ProviderResult<SymbolInformation[]> {
         if (this.connected) {
-            return this.notebookAddon.provideWorkspaceSymbols(query, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/codeAction', debounceFrequentCall)
-    public provideCodeActions(
-        document: TextDocument,
-        range: Range,
-        context: CodeActionContext,
-        token: CancellationToken,
-        next: ProvideCodeActionsSignature
-    ): ProviderResult<(Command | CodeAction)[]> {
+    public provideCodeActions(): ProviderResult<(Command | CodeAction)[]> {
         if (this.connected) {
-            return this.notebookAddon.provideCodeActions(document, range, context, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/codeLens', debounceFrequentCall)
-    public provideCodeLenses(
-        document: TextDocument,
-        token: CancellationToken,
-        next: ProvideCodeLensesSignature
-    ): ProviderResult<CodeLens[]> {
+    public provideCodeLenses(): ProviderResult<CodeLens[]> {
         if (this.connected) {
-            return this.notebookAddon.provideCodeLenses(document, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('codeLens/resolve', debounceFrequentCall)
-    public resolveCodeLens(
-        codeLens: CodeLens,
-        token: CancellationToken,
-        next: ResolveCodeLensSignature
-    ): ProviderResult<CodeLens> {
+    public resolveCodeLens(): ProviderResult<CodeLens> {
         if (this.connected) {
-            return this.notebookAddon.resolveCodeLens(codeLens, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public provideDocumentFormattingEdits(
-        document: TextDocument,
-        options: FormattingOptions,
-        token: CancellationToken,
-        next: ProvideDocumentFormattingEditsSignature
-    ): ProviderResult<TextEdit[]> {
+    public provideDocumentFormattingEdits(): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return this.notebookAddon.provideDocumentFormattingEdits(document, options, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public provideDocumentRangeFormattingEdits(
-        document: TextDocument,
-        range: Range,
-        options: FormattingOptions,
-        token: CancellationToken,
-        next: ProvideDocumentRangeFormattingEditsSignature
-    ): ProviderResult<TextEdit[]> {
+    public provideDocumentRangeFormattingEdits(): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return this.notebookAddon.provideDocumentRangeFormattingEdits(document, range, options, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public provideOnTypeFormattingEdits(
-        document: TextDocument,
-        position: Position,
-        ch: string,
-        options: FormattingOptions,
-        token: CancellationToken,
-        next: ProvideOnTypeFormattingEditsSignature
-    ): ProviderResult<TextEdit[]> {
+    public provideOnTypeFormattingEdits(): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return this.notebookAddon.provideOnTypeFormattingEdits(document, position, ch, options, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/rename', debounceRareCall)
-    public provideRenameEdits(
-        document: TextDocument,
-        position: Position,
-        newName: string,
-        token: CancellationToken,
-        next: ProvideRenameEditsSignature
-    ): ProviderResult<WorkspaceEdit> {
+    public provideRenameEdits(): ProviderResult<WorkspaceEdit> {
         if (this.connected) {
-            return this.notebookAddon.provideRenameEdits(document, position, newName, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/prepareRename', debounceRareCall)
-    public prepareRename(
-        document: TextDocument,
-        position: Position,
-        token: CancellationToken,
-        next: PrepareRenameSignature
-    ): ProviderResult<
+    public prepareRename(): ProviderResult<
         | Range
         | {
               range: Range;
@@ -376,39 +265,35 @@ export class LanguageClientMiddleware implements Middleware {
           }
     > {
         if (this.connected) {
-            return this.notebookAddon.prepareRename(document, position, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public provideDocumentLinks(
-        document: TextDocument,
-        token: CancellationToken,
-        next: ProvideDocumentLinksSignature
-    ): ProviderResult<DocumentLink[]> {
+    public provideDocumentLinks(): ProviderResult<DocumentLink[]> {
         if (this.connected) {
-            return this.notebookAddon.provideDocumentLinks(document, token, next);
+            return this.callNext(arguments);
         }
     }
 
-    public resolveDocumentLink(
-        link: DocumentLink,
-        token: CancellationToken,
-        next: ResolveDocumentLinkSignature
-    ): ProviderResult<DocumentLink> {
+    public resolveDocumentLink(): ProviderResult<DocumentLink> {
         if (this.connected) {
-            return this.notebookAddon.resolveDocumentLink(link, token, next);
+            return this.callNext(arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/declaration', debounceRareCall)
-    public provideDeclaration(
-        document: TextDocument,
-        position: VPosition,
-        token: CancellationToken,
-        next: ProvideDeclarationSignature
-    ): ProviderResult<VDeclaration> {
+    public provideDeclaration(): ProviderResult<VDeclaration> {
         if (this.connected) {
-            return this.notebookAddon.provideDeclaration(document, position, token, next);
+            return this.callNext(arguments);
+        }
+    }
+
+    private callNext(args: IArguments) {
+        if (this.notebookAddon) {
+            // tslint:disable-next-line: no-any
+            return (this.notebookAddon as any)[args.callee.toString()](...args);
+        } else {
+            return args[args.length - 1](...args);
         }
     }
 }
