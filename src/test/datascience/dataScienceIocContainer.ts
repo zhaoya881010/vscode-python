@@ -118,7 +118,7 @@ import {
 import { ProductService } from '../../client/common/installer/productService';
 import { IInstallationChannelManager, IProductPathService, IProductService } from '../../client/common/installer/types';
 import { InterpreterPathService } from '../../client/common/interpreterPathService';
-import { traceInfo } from '../../client/common/logger';
+import { traceError, traceInfo } from '../../client/common/logger';
 import { BrowserService } from '../../client/common/net/browser';
 import { HttpClient } from '../../client/common/net/httpClient';
 import { IS_WINDOWS } from '../../client/common/platform/constants';
@@ -368,11 +368,13 @@ import {
 import { ShebangCodeLensProvider } from '../../client/interpreter/display/shebangCodeLensProvider';
 import { InterpreterHelper } from '../../client/interpreter/helpers';
 import { InterpreterVersionService } from '../../client/interpreter/interpreterVersion';
+import { IInterpreterHashProviderFactory } from '../../client/interpreter/locators/types';
 import { registerInterpreterTypes } from '../../client/interpreter/serviceRegistry';
 import { VirtualEnvironmentManager } from '../../client/interpreter/virtualEnvs';
 import { IVirtualEnvironmentManager } from '../../client/interpreter/virtualEnvs/types';
 import { ProposePylanceBanner } from '../../client/languageServices/proposeLanguageServerBanner';
 import { CacheableLocatorPromiseCache } from '../../client/pythonEnvironments/discovery/locators/services/cacheableLocatorService';
+import { InterpeterHashProviderFactory } from '../../client/pythonEnvironments/discovery/locators/services/hashProviderFactory';
 import { EnvironmentType, PythonEnvironment } from '../../client/pythonEnvironments/info';
 import { registerForIOC } from '../../client/pythonEnvironments/legacyIOC';
 import { CodeExecutionHelper } from '../../client/terminals/codeExecution/helper';
@@ -583,6 +585,10 @@ export class DataScienceIocContainer extends UnitTestIocContainer {
                 instance(this.webPanelProvider)
             );
         }
+        this.serviceManager.addSingleton<IInterpreterHashProviderFactory>(
+            IInterpreterHashProviderFactory,
+            InterpeterHashProviderFactory
+        );
         this.serviceManager.addSingleton<IExportManager>(IExportManager, ExportManager);
         this.serviceManager.addSingleton<ExportDependencyChecker>(ExportDependencyChecker, ExportDependencyChecker);
         this.serviceManager.addSingleton<ExportFileOpener>(ExportFileOpener, ExportFileOpener);
@@ -1058,7 +1064,7 @@ export class DataScienceIocContainer extends UnitTestIocContainer {
             when(this.kernelServiceMock.getKernelSpecs(anything(), anything())).thenResolve([]);
             this.serviceManager.addSingletonInstance<KernelService>(KernelService, instance(this.kernelServiceMock));
 
-            registerForIOC(this.serviceManager);
+            registerForIOC(this.serviceManager, this.serviceContainer);
 
             this.serviceManager.addSingleton<IInterpreterSecurityService>(
                 IInterpreterSecurityService,
@@ -1116,7 +1122,7 @@ export class DataScienceIocContainer extends UnitTestIocContainer {
 
             // Make sure full interpreter services are available.
             registerInterpreterTypes(this.serviceManager);
-            registerForIOC(this.serviceManager);
+            registerForIOC(this.serviceManager, this.serviceContainer);
 
             // Rebind the interpreter display as we don't want to use the real one
             this.serviceManager.rebindInstance<IInterpreterDisplay>(IInterpreterDisplay, interpreterDisplay.object);
@@ -1530,6 +1536,7 @@ export class DataScienceIocContainer extends UnitTestIocContainer {
 
     private async hasFunctionalDependencies(interpreter: PythonEnvironment): Promise<boolean | undefined> {
         try {
+            traceInfo(`Checking ${interpreter.path} for functional dependencies ...`);
             const dependencyChecker = this.serviceManager.get<JupyterInterpreterDependencyService>(
                 JupyterInterpreterDependencyService
             );
@@ -1542,9 +1549,14 @@ export class DataScienceIocContainer extends UnitTestIocContainer {
                         interpreter,
                         allowEnvironmentFetchExceptions: true
                     });
-                return pythonProcess.isModuleInstalled('livelossplot'); // Should we check all dependencies?
+                const result = pythonProcess.isModuleInstalled('livelossplot'); // Should we check all dependencies?
+                traceInfo(`${interpreter.path} has jupyter with livelossplot indicating : ${result}`);
+                return result;
+            } else {
+                traceInfo(`${JSON.stringify(interpreter)} is missing jupyter.`);
             }
         } catch (ex) {
+            traceError(`Exception attempting dependency list for ${interpreter.path}: `, ex);
             return false;
         }
     }

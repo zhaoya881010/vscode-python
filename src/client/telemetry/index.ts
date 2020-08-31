@@ -332,6 +332,12 @@ export interface ISharedPropertyMapping {
      * For every DS telemetry we would like to know the type of Notebook Editor used when doing something.
      */
     ['ds_notebookeditor']: undefined | 'old' | 'custom' | 'native';
+
+    /**
+     * For every telemetry event from the extension we want to make sure we can associate it with install
+     * source. We took this approach to work around very limiting query performance issues.
+     */
+    ['installSource']: undefined | 'marketPlace' | 'pythonCodingPack';
 }
 
 // Map all events to their properties
@@ -1398,6 +1404,14 @@ export interface IEventNamePropertyMapping {
          */
         selection: 'Yes' | 'Maybe later' | 'Do not show again' | undefined;
     };
+    /**
+     * Telemetry event sent when the Python interpreter tip is shown on activation for new users.
+     */
+    [EventName.ACTIVATION_TIP_PROMPT]: never | undefined;
+    /**
+     * Telemetry event sent when the feedback survey prompt is shown on activation for new users, and they click on the survey link.
+     */
+    [EventName.ACTIVATION_SURVEY_PROMPT]: never | undefined;
     /**
      * Telemetry event sent when 'Extract Method' command is invoked
      */
