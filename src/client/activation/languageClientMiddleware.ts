@@ -39,6 +39,7 @@ import {
     NotebookEditorSupport
 } from '../common/experiments/groups';
 import { IConfigurationService, IExperimentsManager } from '../common/types';
+import { isThenable } from '../common/utils/async';
 import { StopWatch } from '../common/utils/stopWatch';
 import { sendTelemetryEvent } from '../telemetry';
 import { EventName } from '../telemetry/constants';
@@ -152,10 +153,12 @@ export class LanguageClientMiddleware implements Middleware {
     }
 
     public didOpen() {
+        // Special case, open and close happen before we connect.
         return this.callNext('didOpen', arguments);
     }
 
     public didClose() {
+        // Special case, open and close happen before we connect.
         return this.callNext('didClose', arguments);
     }
 
@@ -396,9 +399,4 @@ function captureTelemetryForLSPMethod(method: string, debounceMilliseconds: numb
 
         return descriptor;
     };
-}
-
-// tslint:disable-next-line: no-any
-function isThenable<T>(v: any): v is Thenable<T> {
-    return typeof v?.then === 'function';
 }

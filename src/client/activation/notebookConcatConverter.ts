@@ -3,10 +3,11 @@
 import * as path from 'path';
 import * as uuid from 'uuid/v4';
 import {
+    CompletionItem,
+    CompletionList,
     DocumentSelector,
     EndOfLine,
-    Event,
-    EventEmitter,
+    Hover,
     Location,
     NotebookConcatTextDocument,
     NotebookDocument,
@@ -152,6 +153,58 @@ export class NotebookConcatConverter implements TextDocument {
         const position = cell.positionAt(offset);
         const overallPosition = this.concatDocument.positionAt(new Location(cell.uri, position));
         return this.concatDocument.offsetAt(overallPosition);
+    }
+
+    public toIncomingHover(_cell: TextDocument, hover: Hover | null | undefined) {
+        if (hover && hover.range) {
+            return {
+                ...hover,
+                range: this.toIncomingRange(hover.range)
+            };
+        }
+        return hover;
+    }
+    public toIncomingCompletions(
+        _cell: TextDocument,
+        completions: CompletionItem[] | CompletionList | null | undefined
+    ) {
+        if (completions) {
+            if (Array.isArray(completions)) {
+                return completions.map(this.toIncomingCompletion.bind(this));
+            } else {
+                return {
+                    ...completions,
+                    items: completions.items.map(this.toIncomingCompletion.bind(this))
+                };
+            }
+        }
+        return completions;
+    }
+
+    private toIncomingCompletion(item: CompletionItem) {
+        if (item.range) {
+            if (item.range instanceof Range) {
+                return {
+                    ...item,
+                    range: this.toIncomingRange(item.range)
+                };
+            } else {
+                return {
+                    ...item,
+                    range: {
+                        inserting: this.toIncomingRange(item.range.inserting),
+                        replacing: this.toIncomingRange(item.range.replacing)
+                    }
+                };
+            }
+        }
+        return item;
+    }
+
+    private toIncomingRange(range: Range) {
+        const startLoc = this.concatDocument.locationAt(range.start);
+        const endLoc = this.concatDocument.locationAt(range.end);
+        return new Range(startLoc.range.start, endLoc.range.end);
     }
 
     private toOutgoingContentChangeEvent(cell: TextDocument, ev: TextDocumentContentChangeEvent) {

@@ -18,7 +18,6 @@ import {
     DocumentSymbol,
     FormattingOptions,
     Location,
-    notebook,
     NotebookDocument,
     Position,
     Position as VPosition,
@@ -60,6 +59,7 @@ import {
 
 import { ProvideDeclarationSignature } from 'vscode-languageclient/lib/common/declaration';
 import { IVSCodeNotebook } from '../common/application/types';
+import { isThenable } from '../common/utils/async';
 import { isNotebookCell } from '../common/utils/misc';
 import { NotebookConcatConverter } from './notebookConcatConverter';
 
@@ -73,8 +73,11 @@ export class NotebookMiddlewareAddon implements Middleware {
     private converters: NotebookConcatConverter[] = [];
 
     constructor(private notebookApi: IVSCodeNotebook, private selector: DocumentSelector) {
-        notebook.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this));
-        notebook.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this));
+        notebookApi.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this));
+        notebookApi.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this));
+
+        // Call open on all of the active notebooks too
+        notebookApi.notebookDocuments.forEach(this.onDidOpenNotebook.bind(this));
     }
 
     public didChange(event: TextDocumentChangeEvent, next: (ev: TextDocumentChangeEvent) => void) {
@@ -106,10 +109,10 @@ export class NotebookMiddlewareAddon implements Middleware {
 
     public didClose(document: TextDocument, next: (ev: TextDocument) => void) {
         // If this is a notebook cell, change this into a concat document if this is the first time.
-        // TODO: Does this get fired when deleting a cell?
         if (isNotebookCell(document.uri)) {
             const converter = this.getConverter(document);
-            if (converter && converter.firedOpen && converter.firedClose) {
+            // Cell delete should not get a converter because the cell is not in the document anymore
+            if (converter && converter.firedOpen && !converter.firedClose) {
                 converter.firedClose = true;
                 converter.firedOpen = false;
                 const newDoc = converter.getConcatDocument(document);
@@ -147,7 +150,11 @@ export class NotebookMiddlewareAddon implements Middleware {
             if (converter) {
                 const newDoc = converter.getConcatDocument(document);
                 const newPos = converter.toOutgoingPosition(document, position);
-                return next(newDoc, newPos, context, token);
+                const result = next(newDoc, newPos, context, token);
+                if (isThenable(result)) {
+                    return result.then(converter.toIncomingCompletions.bind(converter, document));
+                }
+                return converter.toIncomingCompletions(document, result);
             }
         }
         return next(document, position, context, token);
@@ -159,6 +166,18 @@ export class NotebookMiddlewareAddon implements Middleware {
         token: CancellationToken,
         next: ProvideHoverSignature
     ) {
+        if (isNotebookCell(document.uri)) {
+            const converter = this.getConverter(document);
+            if (converter) {
+                const newDoc = converter.getConcatDocument(document);
+                const newPos = converter.toOutgoingPosition(document, position);
+                const result = next(newDoc, newPos, token);
+                if (isThenable(result)) {
+                    return result.then(converter.toIncomingHover.bind(converter, document));
+                }
+                return converter.toIncomingHover(document, result);
+            }
+        }
         return next(document, position, token);
     }
 
@@ -167,6 +186,9 @@ export class NotebookMiddlewareAddon implements Middleware {
         token: CancellationToken,
         next: ResolveCompletionItemSignature
     ): ProviderResult<CompletionItem> {
+        // Range should have already been remapped.
+        // TODO: What if the LS needs to read the range? It won't make sense. This might mean
+        // doing this at the extension level is not possible.
         return next(item, token);
     }
 
