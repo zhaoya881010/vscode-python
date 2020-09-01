@@ -41,9 +41,9 @@ import {
 import { IConfigurationService, IExperimentsManager } from '../common/types';
 import { isThenable } from '../common/utils/async';
 import { StopWatch } from '../common/utils/stopWatch';
+import { NotebookMiddlewareAddon } from '../datascience/languageserver/notebookMiddlewareAddon';
 import { sendTelemetryEvent } from '../telemetry';
 import { EventName } from '../telemetry/constants';
-import { NotebookMiddlewareAddon } from './notebookMiddlewareAddon';
 import { LanguageServerType } from './types';
 
 // Only send 100 events per hour.
