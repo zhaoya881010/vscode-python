@@ -4,7 +4,7 @@ import '../../common/extensions';
 
 import { inject, injectable, named } from 'inversify';
 
-import { ICommandManager } from '../../common/application/types';
+import { ICommandManager, IVSCodeNotebook } from '../../common/application/types';
 import { traceDecorators } from '../../common/logger';
 import { IConfigurationService, IDisposable, IExperimentsManager, Resource } from '../../common/types';
 import { debounceSync } from '../../common/utils/decorators';
@@ -42,7 +42,8 @@ export class DotNetLanguageServerManager implements ILanguageServerManager {
         @inject(ILanguageServerFolderService) private readonly folderService: ILanguageServerFolderService,
         @inject(IExperimentsManager) private readonly experimentsManager: IExperimentsManager,
         @inject(IConfigurationService) private readonly configService: IConfigurationService,
-        @inject(ICommandManager) commandManager: ICommandManager
+        @inject(ICommandManager) commandManager: ICommandManager,
+        @inject(IVSCodeNotebook) private readonly notebookApi: IVSCodeNotebook
     ) {
         this.disposables.push(
             commandManager.registerCommand(Commands.RestartLS, () => {
@@ -127,6 +128,7 @@ export class DotNetLanguageServerManager implements ILanguageServerManager {
             this.experimentsManager,
             this.configService,
             LanguageServerType.Microsoft,
+            this.notebookApi,
             this.lsVersion
         );
 

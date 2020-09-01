@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import { inject, injectable } from 'inversify';
-import { Disposable, Event, EventEmitter } from 'vscode';
+import { Disposable, DocumentSelector, Event, EventEmitter, NotebookConcatTextDocument } from 'vscode';
 import type {
     notebook,
     NotebookCellsChangeEvent as VSCNotebookCellsChangeEvent,
@@ -97,6 +97,13 @@ export class VSCodeNotebook implements IVSCodeNotebook {
             this.addEventHandlers();
             this.canUseNotebookApi = true;
         }
+    }
+    public createConcatTextDocument(doc: NotebookDocument, selector?: DocumentSelector): NotebookConcatTextDocument {
+        if (this.useProposedApi) {
+            // tslint:disable-next-line: no-any
+            return this.notebook.createConcatTextDocument(doc, selector) as any; // Types of Position are different for some reason. Fix this later.
+        }
+        throw new Error('createConcatDocument not supported');
     }
     public registerNotebookContentProvider(notebookType: string, provider: NotebookContentProvider): Disposable {
         return this.notebook.registerNotebookContentProvider(notebookType, provider);

@@ -24,6 +24,7 @@ import {
     InputBoxOptions,
     MessageItem,
     MessageOptions,
+    NotebookConcatTextDocument,
     OpenDialogOptions,
     OutputChannel,
     Progress,
@@ -1552,4 +1553,6 @@ export interface IVSCodeNotebook {
         outputSelector: NotebookOutputSelector,
         renderer: NotebookOutputRenderer
     ): Disposable;
+
+    createConcatTextDocument(notebook: NotebookDocument, selector?: DocumentSelector): NotebookConcatTextDocument;
 }

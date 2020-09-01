@@ -17,6 +17,8 @@ import {
     DocumentSymbol,
     FormattingOptions,
     Location,
+    notebook,
+    NotebookDocument,
     Position,
     Position as VPosition,
     ProviderResult,
@@ -25,15 +27,14 @@ import {
     SignatureHelpContext,
     SymbolInformation,
     TextDocument,
+    TextDocumentChangeEvent,
+    TextDocumentWillSaveEvent,
     TextEdit,
     Uri,
     WorkspaceEdit
 } from 'vscode';
 import {
-    ConfigurationParams,
-    ConfigurationRequest,
     HandleDiagnosticsSignature,
-    HandlerResult,
     Middleware,
     PrepareRenameSignature,
     ProvideCodeActionsSignature,
@@ -53,18 +54,13 @@ import {
     ProvideWorkspaceSymbolsSignature,
     ResolveCodeLensSignature,
     ResolveCompletionItemSignature,
-    ResolveDocumentLinkSignature,
-    ResponseError
+    ResolveDocumentLinkSignature
 } from 'vscode-languageclient/node';
 
 import { ProvideDeclarationSignature } from 'vscode-languageclient/lib/common/declaration';
-import { HiddenFilePrefix } from '../common/constants';
-import { CollectLSRequestTiming, CollectNodeLSRequestTiming } from '../common/experiments/groups';
-import { IConfigurationService, IExperimentsManager } from '../common/types';
-import { StopWatch } from '../common/utils/stopWatch';
-import { sendTelemetryEvent } from '../telemetry';
-import { EventName } from '../telemetry/constants';
-import { LanguageServerType } from './types';
+import { IVSCodeNotebook } from '../common/application/types';
+import { isNotebookCell } from '../common/utils/misc';
+import { NotebookConcatConverter } from './notebookConcatConverter';
 
 /**
  * This class is a temporary solution to handling intellisense and diagnostics in python based notebooks.
@@ -73,6 +69,40 @@ import { LanguageServerType } from './types';
  * document for LSP requests.
  */
 export class NotebookMiddlewareAddon implements Middleware {
+    private converters: NotebookConcatConverter[] = [];
+
+    constructor(private notebookApi: IVSCodeNotebook) {
+        notebook.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this));
+        notebook.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this));
+    }
+
+    public didChange(event: TextDocumentChangeEvent, next: (ev: TextDocumentChangeEvent) => void) {
+        return next(event);
+    }
+
+    public didOpen(event: TextDocument, next: (ev: TextDocument) => void) {
+        return next(event);
+    }
+
+    public didClose(event: TextDocument, next: (ev: TextDocument) => void) {
+        return next(event);
+    }
+
+    public didSave(event: TextDocument, next: (ev: TextDocument) => void) {
+        return next(event);
+    }
+
+    public willSave(event: TextDocumentWillSaveEvent, next: (ev: TextDocumentWillSaveEvent) => void) {
+        return next(event);
+    }
+
+    public willSaveWaitUntil(
+        event: TextDocumentWillSaveEvent,
+        next: (ev: TextDocumentWillSaveEvent) => Thenable<TextEdit[]>
+    ) {
+        return next(event);
+    }
+
     public provideCompletionItem(
         document: TextDocument,
         position: Position,
@@ -80,6 +110,14 @@ export class NotebookMiddlewareAddon implements Middleware {
         token: CancellationToken,
         next: ProvideCompletionItemsSignature
     ) {
+        if (isNotebookCell(document.uri)) {
+            const converter = this.getConverter(document);
+            if (converter) {
+                const newDoc = converter.getConcatDocument(document);
+                const newPos = converter.toOutgoingPosition(document, position);
+                return next(newDoc, newPos, context, token);
+            }
+        }
         return next(document, position, context, token);
     }
 
@@ -264,5 +302,20 @@ export class NotebookMiddlewareAddon implements Middleware {
 
     public handleDiagnostics(uri: Uri, diagnostics: Diagnostic[], next: HandleDiagnosticsSignature) {
         return next(uri, diagnostics);
+    }
+
+    private onDidOpenNotebook(doc: NotebookDocument) {
+        this.converters.push(new NotebookConcatConverter(doc, this.notebookApi));
+    }
+
+    private onDidCloseNotebook(doc: NotebookDocument) {
+        const index = this.converters.findIndex((c) => c.notebookUri === doc.uri);
+        if (index >= 0) {
+            this.converters.splice(index, 1);
+        }
+    }
+
+    private getConverter(doc: TextDocument) {
+        return this.converters.find((c) => c.isCellOfDocument(doc.uri));
     }
 }

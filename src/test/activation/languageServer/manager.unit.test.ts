@@ -18,6 +18,7 @@ import {
     ILanguageServerProxy
 } from '../../../client/activation/types';
 import { CommandManager } from '../../../client/common/application/commandManager';
+import { VSCodeNotebook } from '../../../client/common/application/notebook';
 import { ICommandManager } from '../../../client/common/application/types';
 import { ConfigurationService } from '../../../client/common/configuration/service';
 import { ExperimentsManager } from '../../../client/common/experiments/manager';
@@ -50,6 +51,7 @@ suite('Language Server - Manager', () => {
         folderService = mock(DotNetLanguageServerFolderService);
         experimentsManager = mock(ExperimentsManager);
         configService = mock(ConfigurationService);
+        const notebookApi = mock(VSCodeNotebook);
 
         commandManager = mock(CommandManager);
         const disposable = mock(Disposable);
@@ -62,7 +64,8 @@ suite('Language Server - Manager', () => {
             instance(folderService),
             instance(experimentsManager),
             instance(configService),
-            instance(commandManager)
+            instance(commandManager),
+            instance(notebookApi)
         );
     });
 

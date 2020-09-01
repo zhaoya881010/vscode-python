@@ -30,6 +30,7 @@ import {
     Middleware,
     ResponseError
 } from 'vscode-languageclient/node';
+import { IVSCodeNotebook } from '../common/application/types';
 
 import { HiddenFilePrefix } from '../common/constants';
 import {
@@ -104,6 +105,7 @@ export class LanguageClientMiddleware implements Middleware {
         experimentsManager: IExperimentsManager,
         private readonly configService: IConfigurationService,
         serverType: LanguageServerType,
+        readonly notebookApi: IVSCodeNotebook,
         public readonly serverVersion?: string
     ) {
         this.handleDiagnostics = this.handleDiagnostics.bind(this); // VS Code calls function without context.
@@ -125,7 +127,7 @@ export class LanguageClientMiddleware implements Middleware {
             experimentsManager.sendTelemetryIfInExperiment(group.control);
         }
         if (experimentsManager.inExperiment(NotebookEditorSupport.nativeNotebookExperiment)) {
-            this.notebookAddon = new NotebookMiddlewareAddon();
+            this.notebookAddon = new NotebookMiddlewareAddon(notebookApi);
         }
     }
 
@@ -137,17 +139,53 @@ export class LanguageClientMiddleware implements Middleware {
         this.connected = false;
     }
 
+    public didChange() {
+        if (this.connected) {
+            return this.callNext('didChange', arguments);
+        }
+    }
+
+    public didOpen() {
+        if (this.connected) {
+            return this.callNext('didOpen', arguments);
+        }
+    }
+
+    public didClose() {
+        if (this.connected) {
+            return this.callNext('didClose', arguments);
+        }
+    }
+
+    public didSave() {
+        if (this.connected) {
+            return this.callNext('didSave', arguments);
+        }
+    }
+
+    public willSave() {
+        if (this.connected) {
+            return this.callNext('willSave', arguments);
+        }
+    }
+
+    public willSaveWaitUntil() {
+        if (this.connected) {
+            return this.callNext('willSaveWaitUntil', arguments);
+        }
+    }
+
     @captureTelemetryForLSPMethod('textDocument/completion', debounceFrequentCall)
     public provideCompletionItem() {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideCompletionItem', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/hover', debounceFrequentCall)
     public provideHover() {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideHover', arguments);
         }
     }
 
@@ -157,7 +195,7 @@ export class LanguageClientMiddleware implements Middleware {
             const filePath = uri.fsPath;
             const baseName = filePath ? path.basename(filePath) : undefined;
             if (!baseName || !baseName.startsWith(HiddenFilePrefix)) {
-                return this.callNext(arguments);
+                return this.callNext('handleDiagnostics', arguments);
             }
         }
     }
@@ -165,94 +203,94 @@ export class LanguageClientMiddleware implements Middleware {
     @captureTelemetryForLSPMethod('completionItem/resolve', debounceFrequentCall)
     public resolveCompletionItem(): ProviderResult<CompletionItem> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('resolveCompletionItem', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/signatureHelp', debounceFrequentCall)
     public provideSignatureHelp() {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideSignatureHelp', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/definition', debounceRareCall)
     public provideDefinition(): ProviderResult<Definition | DefinitionLink[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDefinition', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/references', debounceRareCall)
     public provideReferences(): ProviderResult<Location[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideReferences', arguments);
         }
     }
 
     public provideDocumentHighlights(): ProviderResult<DocumentHighlight[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDocumentHighlights', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/documentSymbol', debounceFrequentCall)
     public provideDocumentSymbols(): ProviderResult<SymbolInformation[] | DocumentSymbol[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDocumentSymbols', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('workspace/symbol', debounceRareCall)
     public provideWorkspaceSymbols(): ProviderResult<SymbolInformation[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideWorkspaceSymbols', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/codeAction', debounceFrequentCall)
     public provideCodeActions(): ProviderResult<(Command | CodeAction)[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideCodeActions', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/codeLens', debounceFrequentCall)
     public provideCodeLenses(): ProviderResult<CodeLens[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideCodeLenses', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('codeLens/resolve', debounceFrequentCall)
     public resolveCodeLens(): ProviderResult<CodeLens> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('resolveCodeLens', arguments);
         }
     }
 
     public provideDocumentFormattingEdits(): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDocumentFormattingEdits', arguments);
         }
     }
 
     public provideDocumentRangeFormattingEdits(): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDocumentRangeFormattingEdits', arguments);
         }
     }
 
     public provideOnTypeFormattingEdits(): ProviderResult<TextEdit[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideOnTypeFormattingEdits', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/rename', debounceRareCall)
     public provideRenameEdits(): ProviderResult<WorkspaceEdit> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideRenameEdits', arguments);
         }
     }
 
@@ -265,33 +303,34 @@ export class LanguageClientMiddleware implements Middleware {
           }
     > {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('prepareRename', arguments);
         }
     }
 
     public provideDocumentLinks(): ProviderResult<DocumentLink[]> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDocumentLinks', arguments);
         }
     }
 
     public resolveDocumentLink(): ProviderResult<DocumentLink> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('resolveDocumentLink', arguments);
         }
     }
 
     @captureTelemetryForLSPMethod('textDocument/declaration', debounceRareCall)
     public provideDeclaration(): ProviderResult<VDeclaration> {
         if (this.connected) {
-            return this.callNext(arguments);
+            return this.callNext('provideDeclaration', arguments);
         }
     }
 
-    private callNext(args: IArguments) {
+    private callNext(funcName: string, args: IArguments) {
         if (this.notebookAddon) {
+            // It would be nice to use args.callee, but not supported in strict mode
             // tslint:disable-next-line: no-any
-            return (this.notebookAddon as any)[args.callee.toString()](...args);
+            return (this.notebookAddon as any)[funcName](...args);
         } else {
             return args[args.length - 1](...args);
         }
