@@ -32,7 +32,7 @@ import {
 } from 'vscode-languageclient/node';
 import { IVSCodeNotebook } from '../common/application/types';
 
-import { HiddenFilePrefix } from '../common/constants';
+import { HiddenFilePrefix, PYTHON_LANGUAGE } from '../common/constants';
 import {
     CollectLSRequestTiming,
     CollectNodeLSRequestTiming,
@@ -127,7 +127,7 @@ export class LanguageClientMiddleware implements Middleware {
             experimentsManager.sendTelemetryIfInExperiment(group.control);
         }
         if (experimentsManager.inExperiment(NotebookEditorSupport.nativeNotebookExperiment)) {
-            this.notebookAddon = new NotebookMiddlewareAddon(notebookApi);
+            this.notebookAddon = new NotebookMiddlewareAddon(notebookApi, PYTHON_LANGUAGE);
         }
     }
 

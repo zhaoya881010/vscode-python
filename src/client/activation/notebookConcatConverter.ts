@@ -3,6 +3,7 @@
 import * as path from 'path';
 import * as uuid from 'uuid/v4';
 import {
+    DocumentSelector,
     EndOfLine,
     Event,
     EventEmitter,
@@ -17,10 +18,11 @@ import {
     Uri
 } from 'vscode';
 import { IVSCodeNotebook } from '../common/application/types';
-import { PYTHON_LANGUAGE } from '../common/constants';
 import { HiddenFileFormatString } from '../constants';
 
 export class NotebookConcatConverter implements TextDocument {
+    public firedOpen = false;
+    public firedClose = false;
     public get onDidChange(): Event<TextDocumentChangeEvent> {
         // Change event should map to the concatenated document
         return this.changed.event;
@@ -42,7 +44,7 @@ export class NotebookConcatConverter implements TextDocument {
     }
 
     public get languageId() {
-        return PYTHON_LANGUAGE;
+        return this.notebookDoc.languages[0];
     }
 
     public get version() {
@@ -67,11 +69,15 @@ export class NotebookConcatConverter implements TextDocument {
     private dummyUri: Uri;
     private _version = 0;
     private changed = new EventEmitter<TextDocumentChangeEvent>();
-    constructor(private notebookDoc: NotebookDocument, private notebookApi: IVSCodeNotebook) {
+    constructor(
+        private notebookDoc: NotebookDocument,
+        private notebookApi: IVSCodeNotebook,
+        selector: DocumentSelector
+    ) {
         const dir = path.dirname(notebookDoc.uri.fsPath);
         this.dummyFilePath = path.join(dir, HiddenFileFormatString.format(uuid().replace(/-/g, '')));
         this.dummyUri = Uri.file(this.dummyFilePath);
-        this.concatDocument = this.notebookApi.createConcatTextDocument(notebookDoc, PYTHON_LANGUAGE);
+        this.concatDocument = this.notebookApi.createConcatTextDocument(notebookDoc, selector);
     }
 
     public isCellOfDocument(uri: Uri) {

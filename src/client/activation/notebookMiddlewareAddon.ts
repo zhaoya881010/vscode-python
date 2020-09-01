@@ -14,6 +14,7 @@ import {
     Diagnostic,
     DocumentHighlight,
     DocumentLink,
+    DocumentSelector,
     DocumentSymbol,
     FormattingOptions,
     Location,
@@ -71,21 +72,52 @@ import { NotebookConcatConverter } from './notebookConcatConverter';
 export class NotebookMiddlewareAddon implements Middleware {
     private converters: NotebookConcatConverter[] = [];
 
-    constructor(private notebookApi: IVSCodeNotebook) {
+    constructor(private notebookApi: IVSCodeNotebook, private selector: DocumentSelector) {
         notebook.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this));
         notebook.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this));
     }
 
     public didChange(event: TextDocumentChangeEvent, next: (ev: TextDocumentChangeEvent) => void) {
-        return next(event);
+        // If this is a notebook cell, change this into a concat document event
+        if (isNotebookCell(event.document.uri)) {
+            const converter = this.getConverter(event.document);
+            if (converter) {
+                const newEvent = converter.toOutgoingChangeEvent(event);
+                return next(newEvent);
+            }
+        } else {
+            next(event);
+        }
     }
 
-    public didOpen(event: TextDocument, next: (ev: TextDocument) => void) {
-        return next(event);
+    public didOpen(document: TextDocument, next: (ev: TextDocument) => void) {
+        // If this is a notebook cell, change this into a concat document if this is the first time.
+        if (isNotebookCell(document.uri)) {
+            const converter = this.getConverter(document);
+            if (converter && !converter.firedOpen) {
+                converter.firedOpen = true;
+                const newDoc = converter.getConcatDocument(document);
+                return next(newDoc);
+            }
+        } else {
+            next(document);
+        }
     }
 
-    public didClose(event: TextDocument, next: (ev: TextDocument) => void) {
-        return next(event);
+    public didClose(document: TextDocument, next: (ev: TextDocument) => void) {
+        // If this is a notebook cell, change this into a concat document if this is the first time.
+        // TODO: Does this get fired when deleting a cell?
+        if (isNotebookCell(document.uri)) {
+            const converter = this.getConverter(document);
+            if (converter && converter.firedOpen && converter.firedClose) {
+                converter.firedClose = true;
+                converter.firedOpen = false;
+                const newDoc = converter.getConcatDocument(document);
+                return next(newDoc);
+            }
+        } else {
+            next(document);
+        }
     }
 
     public didSave(event: TextDocument, next: (ev: TextDocument) => void) {
@@ -305,7 +337,7 @@ export class NotebookMiddlewareAddon implements Middleware {
     }
 
     private onDidOpenNotebook(doc: NotebookDocument) {
-        this.converters.push(new NotebookConcatConverter(doc, this.notebookApi));
+        this.converters.push(new NotebookConcatConverter(doc, this.notebookApi, this.selector));
     }
 
     private onDidCloseNotebook(doc: NotebookDocument) {
