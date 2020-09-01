@@ -109,6 +109,12 @@ export class LanguageClientMiddleware implements Middleware {
         public readonly serverVersion?: string
     ) {
         this.handleDiagnostics = this.handleDiagnostics.bind(this); // VS Code calls function without context.
+        this.didOpen = this.didOpen.bind(this);
+        this.didSave = this.didSave.bind(this);
+        this.didChange = this.didChange.bind(this);
+        this.didClose = this.didClose.bind(this);
+        this.willSave = this.willSave.bind(this);
+        this.willSaveWaitUntil = this.willSaveWaitUntil.bind(this);
 
         let group: { experiment: string; control: string } | undefined;
 
@@ -146,15 +152,11 @@ export class LanguageClientMiddleware implements Middleware {
     }
 
     public didOpen() {
-        if (this.connected) {
-            return this.callNext('didOpen', arguments);
-        }
+        return this.callNext('didOpen', arguments);
     }
 
     public didClose() {
-        if (this.connected) {
-            return this.callNext('didClose', arguments);
-        }
+        return this.callNext('didClose', arguments);
     }
 
     public didSave() {

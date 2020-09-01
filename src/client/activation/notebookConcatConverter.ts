@@ -23,10 +23,6 @@ import { HiddenFileFormatString } from '../constants';
 export class NotebookConcatConverter implements TextDocument {
     public firedOpen = false;
     public firedClose = false;
-    public get onDidChange(): Event<TextDocumentChangeEvent> {
-        // Change event should map to the concatenated document
-        return this.changed.event;
-    }
     public get notebookUri() {
         return this.notebookDoc.uri;
     }
@@ -67,8 +63,7 @@ export class NotebookConcatConverter implements TextDocument {
     private concatDocument: NotebookConcatTextDocument;
     private dummyFilePath: string;
     private dummyUri: Uri;
-    private _version = 0;
-    private changed = new EventEmitter<TextDocumentChangeEvent>();
+    private _version = 1;
     constructor(
         private notebookDoc: NotebookDocument,
         private notebookApi: IVSCodeNotebook,
@@ -78,6 +73,7 @@ export class NotebookConcatConverter implements TextDocument {
         this.dummyFilePath = path.join(dir, HiddenFileFormatString.format(uuid().replace(/-/g, '')));
         this.dummyUri = Uri.file(this.dummyFilePath);
         this.concatDocument = this.notebookApi.createConcatTextDocument(notebookDoc, selector);
+        this.concatDocument.onDidChange(this.onDidChange.bind(this));
     }
 
     public isCellOfDocument(uri: Uri) {
@@ -165,5 +161,9 @@ export class NotebookConcatConverter implements TextDocument {
             rangeOffset: this.toOutgoingOffset(cell, ev.rangeOffset),
             text: ev.text
         };
+    }
+
+    private onDidChange() {
+        this._version += 1;
     }
 }
