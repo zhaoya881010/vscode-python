@@ -68,9 +68,7 @@ import type {
     NotebookDocumentFilter,
     NotebookEditor,
     NotebookKernel,
-    NotebookKernelProvider,
-    NotebookOutputRenderer,
-    NotebookOutputSelector
+    NotebookKernelProvider
 } from 'vscode-proposed';
 import * as vsls from 'vsls/vscode';
 
@@ -1547,12 +1545,6 @@ export interface IVSCodeNotebook {
     registerNotebookContentProvider(notebookType: string, provider: NotebookContentProvider): Disposable;
 
     registerNotebookKernelProvider(selector: NotebookDocumentFilter, provider: NotebookKernelProvider): Disposable;
-
-    registerNotebookOutputRenderer(
-        id: string,
-        outputSelector: NotebookOutputSelector,
-        renderer: NotebookOutputRenderer
-    ): Disposable;
 
     createConcatTextDocument(notebook: NotebookDocument, selector?: DocumentSelector): NotebookConcatTextDocument;
 }
