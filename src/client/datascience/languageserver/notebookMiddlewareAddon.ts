@@ -61,7 +61,7 @@ import { ProvideDeclarationSignature } from 'vscode-languageclient/lib/common/de
 import { IVSCodeNotebook } from '../../common/application/types';
 import { isThenable } from '../../common/utils/async';
 import { isNotebookCell } from '../../common/utils/misc';
-import { NotebookConcatConverter } from './notebookConcatConverter';
+import { NotebookConverter } from './notebookConverter';
 
 /**
  * This class is a temporary solution to handling intellisense and diagnostics in python based notebooks.
@@ -70,24 +70,17 @@ import { NotebookConcatConverter } from './notebookConcatConverter';
  * document for LSP requests.
  */
 export class NotebookMiddlewareAddon implements Middleware {
-    private converters: NotebookConcatConverter[] = [];
+    private converter: NotebookConverter;
 
-    constructor(private notebookApi: IVSCodeNotebook, private selector: DocumentSelector) {
-        notebookApi.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this));
-        notebookApi.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this));
-
-        // Call open on all of the active notebooks too
-        notebookApi.notebookDocuments.forEach(this.onDidOpenNotebook.bind(this));
+    constructor(notebookApi: IVSCodeNotebook, selector: DocumentSelector) {
+        this.converter = new NotebookConverter(notebookApi, selector);
     }
 
     public didChange(event: TextDocumentChangeEvent, next: (ev: TextDocumentChangeEvent) => void) {
         // If this is a notebook cell, change this into a concat document event
         if (isNotebookCell(event.document.uri)) {
-            const converter = this.getConverter(event.document);
-            if (converter) {
-                const newEvent = converter.toOutgoingChangeEvent(event);
-                return next(newEvent);
-            }
+            const newEvent = this.converter.toOutgoingChangeEvent(event);
+            return next(newEvent);
         } else {
             next(event);
         }
@@ -96,10 +89,9 @@ export class NotebookMiddlewareAddon implements Middleware {
     public didOpen(document: TextDocument, next: (ev: TextDocument) => void) {
         // If this is a notebook cell, change this into a concat document if this is the first time.
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter && !converter.firedOpen) {
-                converter.firedOpen = true;
-                const newDoc = converter.getConcatDocument(document);
+            if (this.converter.hasFiredOpen(document)) {
+                this.converter.firedOpen(document);
+                const newDoc = this.converter.toOutgoingDocument(document);
                 return next(newDoc);
             }
         } else {
@@ -110,12 +102,9 @@ export class NotebookMiddlewareAddon implements Middleware {
     public didClose(document: TextDocument, next: (ev: TextDocument) => void) {
         // If this is a notebook cell, change this into a concat document if this is the first time.
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
             // Cell delete should not get a converter because the cell is not in the document anymore
-            if (converter && converter.firedOpen && !converter.firedClose) {
-                converter.firedClose = true;
-                converter.firedOpen = false;
-                const newDoc = converter.getConcatDocument(document);
+            if (this.converter.hasOutgoingDocument(document)) {
+                const newDoc = this.converter.toOutgoingDocument(document);
                 return next(newDoc);
             }
         } else {
@@ -146,16 +135,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideCompletionItemsSignature
     ) {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, context, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingCompletions.bind(converter, document));
-                }
-                return converter.toIncomingCompletions(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, context, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingCompletions.bind(this.converter, document));
             }
+            return this.converter.toIncomingCompletions(document, result);
         }
         return next(document, position, context, token);
     }
@@ -167,16 +153,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideHoverSignature
     ) {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingHover.bind(converter, document));
-                }
-                return converter.toIncomingHover(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingHover.bind(this.converter, document));
             }
+            return this.converter.toIncomingHover(document, result);
         }
         return next(document, position, token);
     }
@@ -200,12 +183,9 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideSignatureHelpSignature
     ): ProviderResult<SignatureHelp> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                return next(newDoc, newPos, context, token);
-            }
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            return next(newDoc, newPos, context, token);
         }
         return next(document, position, context, token);
     }
@@ -217,16 +197,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideDefinitionSignature
     ): ProviderResult<Definition | DefinitionLink[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingLocation.bind(converter, document));
-                }
-                return converter.toIncomingLocation(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingLocation.bind(this.converter, document));
             }
+            return this.converter.toIncomingLocation(document, result);
         }
         return next(document, position, token);
     }
@@ -241,16 +218,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideReferencesSignature
     ): ProviderResult<Location[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, options, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingLocation.bind(converter, document));
-                }
-                return converter.toIncomingLocation(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, options, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingLocation.bind(this.converter, document));
             }
+            return this.converter.toIncomingLocation(document, result);
         }
         return next(document, position, options, token);
     }
@@ -262,16 +236,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideDocumentHighlightsSignature
     ): ProviderResult<DocumentHighlight[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingHighlight.bind(converter, document));
-                }
-                return converter.toIncomingHighlight(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingHighlight.bind(this.converter, document));
             }
+            return this.converter.toIncomingHighlight(document, result);
         }
         return next(document, position, token);
     }
@@ -282,15 +253,12 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideDocumentSymbolsSignature
     ): ProviderResult<SymbolInformation[] | DocumentSymbol[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const result = next(newDoc, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingSymbols.bind(converter, document));
-                }
-                return converter.toIncomingSymbols(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const result = next(newDoc, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingSymbols.bind(this.converter, document));
             }
+            return this.converter.toIncomingSymbols(document, result);
         }
         return next(document, token);
     }
@@ -315,17 +283,14 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideCodeActionsSignature
     ): ProviderResult<(Command | CodeAction)[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newRange = converter.toOutgoingRange(document, range);
-                const newContext = converter.toOutgoingContext(document, context);
-                const result = next(newDoc, newRange, newContext, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingActions.bind(converter, document));
-                }
-                return converter.toIncomingActions(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newRange = this.converter.toOutgoingRange(document, range);
+            const newContext = this.converter.toOutgoingContext(document, context);
+            const result = next(newDoc, newRange, newContext, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingActions.bind(this.converter, document));
             }
+            return this.converter.toIncomingActions(document, result);
         }
         return next(document, range, context, token);
     }
@@ -336,15 +301,12 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideCodeLensesSignature
     ): ProviderResult<CodeLens[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const result = next(newDoc, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingCodeLenses.bind(converter, document));
-                }
-                return converter.toIncomingCodeLenses(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const result = next(newDoc, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingCodeLenses.bind(this.converter, document));
             }
+            return this.converter.toIncomingCodeLenses(document, result);
         }
         return next(document, token);
     }
@@ -367,15 +329,12 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideDocumentFormattingEditsSignature
     ): ProviderResult<TextEdit[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const result = next(newDoc, options, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingEdits.bind(converter, document));
-                }
-                return converter.toIncomingEdits(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const result = next(newDoc, options, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingEdits.bind(this.converter, document));
             }
+            return this.converter.toIncomingEdits(document, result);
         }
         return next(document, options, token);
     }
@@ -388,16 +347,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideDocumentRangeFormattingEditsSignature
     ): ProviderResult<TextEdit[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newRange = converter.toOutgoingRange(document, range);
-                const result = next(newDoc, newRange, options, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingEdits.bind(converter, document));
-                }
-                return converter.toIncomingEdits(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newRange = this.converter.toOutgoingRange(document, range);
+            const result = next(newDoc, newRange, options, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingEdits.bind(this.converter, document));
             }
+            return this.converter.toIncomingEdits(document, result);
         }
         return next(document, range, options, token);
     }
@@ -411,16 +367,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideOnTypeFormattingEditsSignature
     ): ProviderResult<TextEdit[]> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, ch, options, token);
-                if (isThenable(result)) {
-                    return result.then(converter.toIncomingEdits.bind(converter, document));
-                }
-                return converter.toIncomingEdits(document, result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, ch, options, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingEdits.bind(this.converter, document));
             }
+            return this.converter.toIncomingEdits(document, result);
         }
         return next(document, position, ch, options, token);
     }
@@ -433,16 +386,13 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ProvideRenameEditsSignature
     ): ProviderResult<WorkspaceEdit> {
         if (isNotebookCell(document.uri)) {
-            const converter = this.getConverter(document);
-            if (converter) {
-                const newDoc = converter.getConcatDocument(document);
-                const newPos = converter.toOutgoingPosition(document, position);
-                const result = next(newDoc, newPos, newName, token);
-                if (isThenable(result)) {
-                    return result.then(NotebookConcatConverter.toIncomingWorkspaceEdit);
-                }
-                return NotebookConcatConverter.toIncomingWorkspaceEdit(result);
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, newName, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingWorkspaceEdit.bind(this.converter));
             }
+            return this.converter.toIncomingWorkspaceEdit(result);
         }
         return next(document, position, newName, token);
     }
@@ -491,21 +441,6 @@ export class NotebookMiddlewareAddon implements Middleware {
         return next(uri, diagnostics);
     }
 
-    private onDidOpenNotebook(doc: NotebookDocument) {
-        this.converters.push(new NotebookConcatConverter(doc, this.notebookApi, this.selector));
-    }
-
-    private onDidCloseNotebook(doc: NotebookDocument) {
-        const index = this.converters.findIndex((c) => c.notebookUri === doc.uri);
-        if (index >= 0) {
-            this.converters.splice(index, 1);
-        }
-    }
-
-    private getConverter(doc: TextDocument) {
-        return this.converters.find((c) => c.isCellOfDocument(doc.uri));
-    }
-
     private convertWorkspaceSymbols(symbols: SymbolInformation[] | null | undefined) {
         if (symbols) {
             return symbols.map(this.convertWorkspaceSymbol.bind(this));
@@ -515,12 +450,12 @@ export class NotebookMiddlewareAddon implements Middleware {
 
     private convertWorkspaceSymbol(symbol: SymbolInformation) {
         // Figure out what converter if any the symbol is for
-        const converter = this.converters.find((c) => c.uri === symbol.location.uri);
+        const converter = this.converter.toOutgoingDocument(symbol.location.uri);
         if (converter) {
             // Ask it for the cell
-            const cell = converter.getCellAtPosition(symbol.location.range.start);
+            const cell = this.converter.getCellAtPosition(symbol.location.range.start);
             if (cell) {
-                return converter.toIncomingSymbolFromSymbolInformation(cell.document, symbol);
+                return this.converter.toIncomingSymbolFromSymbolInformation(cell.document, symbol);
             }
         }
         return symbol;
