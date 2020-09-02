@@ -3,40 +3,23 @@
 import * as path from 'path';
 import * as uuid from 'uuid/v4';
 import {
-    CodeAction,
-    CodeActionContext,
-    CodeLens,
-    Command,
-    CompletionItem,
-    CompletionList,
-    Diagnostic,
-    DiagnosticRelatedInformation,
-    DocumentHighlight,
+    Disposable,
     DocumentSelector,
-    DocumentSymbol,
     EndOfLine,
-    Hover,
-    Location,
-    LocationLink,
     NotebookConcatTextDocument,
     NotebookDocument,
     Position,
     Range,
-    SymbolInformation,
     TextDocument,
-    TextDocumentChangeEvent,
-    TextDocumentContentChangeEvent,
-    TextEdit,
-    Uri,
-    WorkspaceEdit
+    Uri
 } from 'vscode';
 import { IVSCodeNotebook } from '../../common/application/types';
-import { HiddenFileFormatString } from '../../constants';
+import { IDisposable } from '../../common/types';
 
 /**
  * This helper class is used to present a converted document to an LS
  */
-export class NotebookConcatDocument implements TextDocument {
+export class NotebookConcatDocument implements TextDocument, IDisposable {
     public get notebookUri() {
         return this.notebookDoc.uri;
     }
@@ -74,16 +57,25 @@ export class NotebookConcatDocument implements TextDocument {
     public get lineCount() {
         return this.notebookDoc.cells.map((c) => c.document.lineCount).reduce((p, c) => p + c);
     }
+    public firedOpen = false;
+    public firedClose = false;
     public concatDocument: NotebookConcatTextDocument;
     private dummyFilePath: string;
     private dummyUri: Uri;
     private _version = 1;
+    private onDidChangeSubscription: Disposable;
     constructor(private notebookDoc: NotebookDocument, notebookApi: IVSCodeNotebook, selector: DocumentSelector) {
         const dir = path.dirname(notebookDoc.uri.fsPath);
-        this.dummyFilePath = path.join(dir, HiddenFileFormatString.format(uuid().replace(/-/g, '')));
+        // Note: Has to be different than the prefix for old notebook editor (HiddenFileFormat) so
+        // that the caller doesn't remove diagnostics for this document.
+        this.dummyFilePath = path.join(dir, `_NotebookConcat_${uuid().replace(/-/g, '')}`);
         this.dummyUri = Uri.file(this.dummyFilePath);
         this.concatDocument = notebookApi.createConcatTextDocument(notebookDoc, selector);
-        this.concatDocument.onDidChange(this.onDidChange.bind(this));
+        this.onDidChangeSubscription = this.concatDocument.onDidChange(this.onDidChange, this);
+    }
+
+    public dispose() {
+        this.onDidChangeSubscription.dispose();
     }
 
     public isCellOfDocument(uri: Uri) {
@@ -130,13 +122,6 @@ export class NotebookConcatDocument implements TextDocument {
 
     public validatePosition(pos: Position) {
         return this.concatDocument.validatePosition(pos);
-    }
-
-    public getConcatDocument(cell: TextDocument) {
-        if (this.isCellOfDocument(cell.uri)) {
-            return this;
-        }
-        return cell;
     }
 
     public getCellAtPosition(position: Position) {

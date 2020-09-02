@@ -12,13 +12,13 @@ import {
     Definition,
     DefinitionLink,
     Diagnostic,
+    Disposable,
     DocumentHighlight,
     DocumentLink,
     DocumentSelector,
     DocumentSymbol,
     FormattingOptions,
     Location,
-    NotebookDocument,
     Position,
     Position as VPosition,
     ProviderResult,
@@ -69,11 +69,15 @@ import { NotebookConverter } from './notebookConverter';
  * It is responsible for generating a concatenated document of all of the cells in a notebook and using that as the
  * document for LSP requests.
  */
-export class NotebookMiddlewareAddon implements Middleware {
+export class NotebookMiddlewareAddon implements Middleware, Disposable {
     private converter: NotebookConverter;
 
-    constructor(notebookApi: IVSCodeNotebook, selector: DocumentSelector) {
-        this.converter = new NotebookConverter(notebookApi, selector);
+    constructor(notebookApi: IVSCodeNotebook, cellSelector: DocumentSelector, notebookFileRegex: RegExp) {
+        this.converter = new NotebookConverter(notebookApi, cellSelector, notebookFileRegex);
+    }
+
+    public dispose() {
+        this.converter.dispose();
     }
 
     public didChange(event: TextDocumentChangeEvent, next: (ev: TextDocumentChangeEvent) => void) {
@@ -102,8 +106,10 @@ export class NotebookMiddlewareAddon implements Middleware {
     public didClose(document: TextDocument, next: (ev: TextDocument) => void) {
         // If this is a notebook cell, change this into a concat document if this is the first time.
         if (isNotebookCell(document.uri)) {
-            // Cell delete should not get a converter because the cell is not in the document anymore
-            if (this.converter.hasOutgoingDocument(document)) {
+            // Cell delete causes this callback, but won't fire the close event because it's not
+            // in the document anymore.
+            if (this.converter.hasCell(document) && !this.converter.hasFiredClose(document)) {
+                this.converter.firedClose(document);
                 const newDoc = this.converter.toOutgoingDocument(document);
                 return next(newDoc);
             }
@@ -170,6 +176,7 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ResolveCompletionItemSignature
     ): ProviderResult<CompletionItem> {
         // Range should have already been remapped.
+        // tslint:disable-next-line: no-suspicious-comment
         // TODO: What if the LS needs to read the range? It won't make sense. This might mean
         // doing this at the extension level is not possible.
         return next(item, token);
@@ -201,9 +208,9 @@ export class NotebookMiddlewareAddon implements Middleware {
             const newPos = this.converter.toOutgoingPosition(document, position);
             const result = next(newDoc, newPos, token);
             if (isThenable(result)) {
-                return result.then(this.converter.toIncomingLocation.bind(this.converter, document));
+                return result.then(this.converter.toIncomingLocations.bind(this.converter, document));
             }
-            return this.converter.toIncomingLocation(document, result);
+            return this.converter.toIncomingLocations(document, result);
         }
         return next(document, position, token);
     }
@@ -222,9 +229,9 @@ export class NotebookMiddlewareAddon implements Middleware {
             const newPos = this.converter.toOutgoingPosition(document, position);
             const result = next(newDoc, newPos, options, token);
             if (isThenable(result)) {
-                return result.then(this.converter.toIncomingLocation.bind(this.converter, document));
+                return result.then(this.converter.toIncomingLocations.bind(this.converter, document));
             }
-            return this.converter.toIncomingLocation(document, result);
+            return this.converter.toIncomingLocations(document, result);
         }
         return next(document, position, options, token);
     }
@@ -270,9 +277,9 @@ export class NotebookMiddlewareAddon implements Middleware {
     ): ProviderResult<SymbolInformation[]> {
         const result = next(query, token);
         if (isThenable(result)) {
-            return result.then(this.convertWorkspaceSymbols.bind(this));
+            return result.then(this.converter.toIncomingWorkspaceSymbols.bind(this));
         }
-        return this.convertWorkspaceSymbols(result);
+        return this.converter.toIncomingWorkspaceSymbols(result);
     }
 
     public provideCodeActions(
@@ -317,6 +324,7 @@ export class NotebookMiddlewareAddon implements Middleware {
         next: ResolveCodeLensSignature
     ): ProviderResult<CodeLens> {
         // Range should have already been remapped.
+        // tslint:disable-next-line: no-suspicious-comment
         // TODO: What if the LS needs to read the range? It won't make sense. This might mean
         // doing this at the extension level is not possible.
         return next(codeLens, token);
@@ -409,6 +417,15 @@ export class NotebookMiddlewareAddon implements Middleware {
               placeholder: string;
           }
     > {
+        if (isNotebookCell(document.uri)) {
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingRename.bind(this.converter, document));
+            }
+            return this.converter.toIncomingRename(document, result);
+        }
         return next(document, position, token);
     }
 
@@ -417,6 +434,14 @@ export class NotebookMiddlewareAddon implements Middleware {
         token: CancellationToken,
         next: ProvideDocumentLinksSignature
     ): ProviderResult<DocumentLink[]> {
+        if (isNotebookCell(document.uri)) {
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const result = next(newDoc, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingDocumentLinks.bind(this.converter, document));
+            }
+            return this.converter.toIncomingDocumentLinks(document, result);
+        }
         return next(document, token);
     }
 
@@ -425,6 +450,10 @@ export class NotebookMiddlewareAddon implements Middleware {
         token: CancellationToken,
         next: ResolveDocumentLinkSignature
     ): ProviderResult<DocumentLink> {
+        // Range should have already been remapped.
+        // tslint:disable-next-line: no-suspicious-comment
+        // TODO: What if the LS needs to read the range? It won't make sense. This might mean
+        // doing this at the extension level is not possible.
         return next(link, token);
     }
 
@@ -434,30 +463,21 @@ export class NotebookMiddlewareAddon implements Middleware {
         token: CancellationToken,
         next: ProvideDeclarationSignature
     ): ProviderResult<VDeclaration> {
+        if (isNotebookCell(document.uri)) {
+            const newDoc = this.converter.toOutgoingDocument(document);
+            const newPos = this.converter.toOutgoingPosition(document, position);
+            const result = next(newDoc, newPos, token);
+            if (isThenable(result)) {
+                return result.then(this.converter.toIncomingLocations.bind(this.converter, document));
+            }
+            return this.converter.toIncomingLocations(document, result);
+        }
         return next(document, position, token);
     }
 
     public handleDiagnostics(uri: Uri, diagnostics: Diagnostic[], next: HandleDiagnosticsSignature) {
-        return next(uri, diagnostics);
-    }
-
-    private convertWorkspaceSymbols(symbols: SymbolInformation[] | null | undefined) {
-        if (symbols) {
-            return symbols.map(this.convertWorkspaceSymbol.bind(this));
-        }
-        return symbols;
-    }
-
-    private convertWorkspaceSymbol(symbol: SymbolInformation) {
-        // Figure out what converter if any the symbol is for
-        const converter = this.converter.toOutgoingDocument(symbol.location.uri);
-        if (converter) {
-            // Ask it for the cell
-            const cell = this.converter.getCellAtPosition(symbol.location.range.start);
-            if (cell) {
-                return this.converter.toIncomingSymbolFromSymbolInformation(cell.document, symbol);
-            }
-        }
-        return symbol;
+        // Remap any wrapped documents so that diagnostics appear in the cells
+        const newDiagMapping = this.converter.toIncomingDiagnosticsMap(uri, diagnostics);
+        [...newDiagMapping.keys()].forEach((k) => next(k, newDiagMapping.get(k)!));
     }
 }

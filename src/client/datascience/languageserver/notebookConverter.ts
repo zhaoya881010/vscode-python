@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
+import * as os from 'os';
 import {
     CodeAction,
     CodeActionContext,
@@ -9,7 +10,9 @@ import {
     CompletionList,
     Diagnostic,
     DiagnosticRelatedInformation,
+    Disposable,
     DocumentHighlight,
+    DocumentLink,
     DocumentSelector,
     DocumentSymbol,
     Hover,
@@ -24,32 +27,129 @@ import {
     TextDocumentChangeEvent,
     TextDocumentContentChangeEvent,
     TextEdit,
+    Uri,
     WorkspaceEdit
 } from 'vscode';
 import { IVSCodeNotebook } from '../../common/application/types';
 import { NotebookConcatDocument } from './notebookConcatDocument';
 
-export class NotebookConverter {
-    private activeDocuments: NotebookConcatDocument[] = [];
+export class NotebookConverter implements Disposable {
+    private activeDocuments: Map<string, NotebookConcatDocument> = new Map<string, NotebookConcatDocument>();
+    private disposables: Disposable[] = [];
 
-    constructor(private api: IVSCodeNotebook, private selector: DocumentSelector) {
-        api.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this));
-        api.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this));
+    constructor(private api: IVSCodeNotebook, private cellSelector: DocumentSelector, private notebookFilter: RegExp) {
+        this.disposables.push(api.onDidOpenNotebookDocument(this.onDidOpenNotebook.bind(this)));
+        this.disposables.push(api.onDidCloseNotebookDocument(this.onDidCloseNotebook.bind(this)));
 
         // Call open on all of the active notebooks too
         api.notebookDocuments.forEach(this.onDidOpenNotebook.bind(this));
     }
 
+    public dispose() {
+        this.disposables.forEach((d) => d.dispose());
+    }
+
+    public hasCell(cell: TextDocument) {
+        const concat = this.getConcatDocument(cell);
+        return concat && concat.contains(cell.uri);
+    }
+
+    public hasFiredOpen(cell: TextDocument) {
+        const wrapper = this.getTextDocumentWrapper(cell);
+        if (wrapper) {
+            return wrapper.firedOpen;
+        }
+    }
+
+    public firedOpen(cell: TextDocument) {
+        const wrapper = this.getTextDocumentWrapper(cell);
+        if (wrapper) {
+            wrapper.firedOpen = true;
+        }
+    }
+
+    public hasFiredClose(cell: TextDocument) {
+        const wrapper = this.getTextDocumentWrapper(cell);
+        if (wrapper) {
+            return wrapper.firedClose;
+        }
+    }
+
+    public firedClose(cell: TextDocument) {
+        const wrapper = this.getTextDocumentWrapper(cell);
+        if (wrapper) {
+            wrapper.firedClose = true;
+            wrapper.firedOpen = false;
+        }
+    }
+
+    public toIncomingDiagnosticsMap(uri: Uri, diagnostics: Diagnostic[]): Map<Uri, Diagnostic[]> {
+        const wrapper = [...this.activeDocuments.values()].find((d) => d.uri === uri);
+        const result = new Map<Uri, Diagnostic[]>();
+
+        if (wrapper) {
+            diagnostics.forEach((d) => {
+                const location = wrapper.concatDocument.locationAt(d.range);
+                let list = result.get(location.uri);
+                if (!list) {
+                    list = [];
+                    result.set(location.uri, list);
+                }
+                list.push(this.toIncomingDiagnostic(location.uri, d));
+            });
+        } else {
+            result.set(uri, diagnostics);
+        }
+
+        return result;
+    }
+
+    public toIncomingWorkspaceSymbols(symbols: SymbolInformation[] | null | undefined) {
+        if (Array.isArray(symbols)) {
+            return symbols.map(this.toIncomingWorkspaceSymbol.bind(this));
+        }
+        return symbols;
+    }
+
     public toIncomingWorkspaceEdit(workspaceEdit: WorkspaceEdit | null | undefined) {
         if (workspaceEdit) {
-            // Translate all of the text edits
+            // Translate all of the text edits into a URI map
+            const translated = new Map<Uri, TextEdit[]>();
+            workspaceEdit.entries().forEach((v) => {
+                v[1].forEach((e) => {
+                    // Location may move this edit to a different cell.
+                    const location = this.toIncomingLocation(v[0], e.range);
+
+                    // Save this in the entry
+                    let list = translated.get(location.uri);
+                    if (!list) {
+                        list = [];
+                        translated.set(location.uri, list);
+                    }
+                    list.push({
+                        ...e,
+                        range: location.range
+                    });
+                });
+            });
+
+            // Add translated entries to the new edit
+            const newWorkspaceEdit = new WorkspaceEdit();
+            translated.forEach((v, k) => newWorkspaceEdit.set(k, v));
+            return newWorkspaceEdit;
         }
         return workspaceEdit;
     }
 
     public toOutgoingDocument(cell: TextDocument): TextDocument {
-        const result = this.activeDocuments.find((c) => c.concatDocument.contains(cell.uri));
+        const result = this.getTextDocumentWrapper(cell);
         return result ? result : cell;
+    }
+
+    public toOutgoingUri(cell: TextDocument | Uri): Uri {
+        const uri = cell instanceof Uri ? <Uri>cell : cell.uri;
+        const result = this.getTextDocumentWrapper(cell);
+        return result ? result.uri : uri;
     }
 
     public toOutgoingChangeEvent(cellEvent: TextDocumentChangeEvent) {
@@ -62,19 +162,28 @@ export class NotebookConverter {
     }
 
     public toOutgoingPosition(cell: TextDocument, position: Position) {
-        return this.getConcatDocument(cell).positionAt(new Location(cell.uri, position));
+        const concat = this.getConcatDocument(cell);
+        return concat ? concat.positionAt(new Location(cell.uri, position)) : position;
     }
 
     public toOutgoingRange(cell: TextDocument, cellRange: Range): Range {
-        const startPos = this.getConcatDocument(cell).positionAt(new Location(cell.uri, cellRange.start));
-        const endPos = this.getConcatDocument(cell).positionAt(new Location(cell.uri, cellRange.end));
-        return new Range(startPos, endPos);
+        const concat = this.getConcatDocument(cell);
+        if (concat) {
+            const startPos = concat.positionAt(new Location(cell.uri, cellRange.start));
+            const endPos = concat.positionAt(new Location(cell.uri, cellRange.end));
+            return new Range(startPos, endPos);
+        }
+        return cellRange;
     }
 
     public toOutgoingOffset(cell: TextDocument, offset: number) {
-        const position = cell.positionAt(offset);
-        const overallPosition = this.getConcatDocument(cell).positionAt(new Location(cell.uri, position));
-        return this.getConcatDocument(cell).offsetAt(overallPosition);
+        const concat = this.getConcatDocument(cell);
+        if (concat) {
+            const position = cell.positionAt(offset);
+            const overallPosition = concat.positionAt(new Location(cell.uri, position));
+            return concat.offsetAt(overallPosition);
+        }
+        return offset;
     }
 
     public toOutgoingContext(cell: TextDocument, context: CodeActionContext): CodeActionContext {
@@ -110,15 +219,15 @@ export class NotebookConverter {
         return completions;
     }
 
-    public toIncomingLocation(cell: TextDocument, location: Location | Location[] | LocationLink[] | null | undefined) {
+    public toIncomingLocations(
+        cell: TextDocument,
+        location: Location | Location[] | LocationLink[] | null | undefined
+    ) {
         if (Array.isArray(location)) {
             // tslint:disable-next-line: no-any
             return (<any>location).map(this.toIncomingLocationFromLink.bind(this, cell));
         } else if (location?.range) {
-            return {
-                ...location,
-                range: this.toIncomingRange(cell, location.range)
-            };
+            return this.toIncomingLocation(location.uri, location.range);
         }
         return location;
     }
@@ -149,11 +258,11 @@ export class NotebookConverter {
     public toIncomingSymbolFromSymbolInformation(cell: TextDocument, symbol: SymbolInformation): SymbolInformation {
         return {
             ...symbol,
-            location: this.toIncomingLocation(cell, symbol.location)
+            location: this.toIncomingLocation(cell, symbol.location.range)
         };
     }
 
-    public toIncomingDiagnostic(cell: TextDocument, diagnostic: Diagnostic): Diagnostic {
+    public toIncomingDiagnostic(cell: TextDocument | Uri, diagnostic: Diagnostic): Diagnostic {
         return {
             ...diagnostic,
             range: this.toIncomingRange(cell, diagnostic.range),
@@ -192,6 +301,67 @@ export class NotebookConverter {
             });
         }
         return edits;
+    }
+
+    public toIncomingRename(
+        cell: TextDocument,
+        rangeOrRename:
+            | Range
+            | {
+                  range: Range;
+                  placeholder: string;
+              }
+            | null
+            | undefined
+    ) {
+        if (rangeOrRename) {
+            if (rangeOrRename instanceof Range) {
+                return this.toIncomingLocation(cell, rangeOrRename).range;
+            } else {
+                return {
+                    ...rangeOrRename,
+                    range: this.toIncomingLocation(cell, rangeOrRename.range).range
+                };
+            }
+        }
+        return rangeOrRename;
+    }
+
+    public toIncomingDocumentLinks(cell: TextDocument, links: DocumentLink[] | null | undefined) {
+        if (links && Array.isArray(links)) {
+            return links.map((l) => {
+                const uri = l.target ? l.target : cell.uri;
+                const location = this.toIncomingLocation(uri, l.range);
+                return {
+                    ...l,
+                    range: location.range,
+                    target: l.target ? location.uri : undefined
+                };
+            });
+        }
+        return links;
+    }
+
+    public toIncomingRange(cell: TextDocument | Uri, range: Range) {
+        // This is dangerous as the URI is not remapped (location uri may be different)
+        return this.toIncomingLocation(cell, range).range;
+    }
+
+    private getCellAtLocation(location: Location) {
+        const key = this.getDocumentKey(location.uri);
+        const wrapper = this.activeDocuments.get(key);
+        if (wrapper) {
+            return wrapper.getCellAtPosition(location.range.start);
+        }
+    }
+
+    private toIncomingWorkspaceSymbol(symbol: SymbolInformation): SymbolInformation {
+        // Figure out what cell if any the symbol is for
+        const cell = this.getCellAtLocation(symbol.location);
+        if (cell) {
+            return this.toIncomingSymbolFromSymbolInformation(cell.document, symbol);
+        }
+        return symbol;
     }
 
     private toIncomingAction(cell: TextDocument, action: Command | CodeAction): Command | CodeAction {
@@ -238,14 +408,14 @@ export class NotebookConverter {
     }
 
     private toIncomingRelatedInformation(
-        cell: TextDocument,
+        cell: TextDocument | Uri,
         relatedInformation: DiagnosticRelatedInformation
     ): DiagnosticRelatedInformation {
-        const outgoingDoc = this.toOutgoingDocument(cell);
+        const outgoingUri = this.toOutgoingUri(cell);
         return {
             ...relatedInformation,
             location:
-                relatedInformation.location.uri === outgoingDoc.uri
+                relatedInformation.location.uri === outgoingUri
                     ? this.toIncomingLocationFromLink(cell, relatedInformation.location)
                     : relatedInformation.location
         };
@@ -260,14 +430,18 @@ export class NotebookConverter {
         };
     }
 
-    private toIncomingLocationFromLink(cell: TextDocument, location: Location | LocationLink) {
+    private toIncomingLocationFromLink(cell: TextDocument | Uri, location: Location | LocationLink) {
         const locationLink = <LocationLink>location;
         const locationNorm = <Location>location;
+        const uri = this.toIncomingLocation(
+            locationLink.targetUri || locationNorm.uri,
+            locationLink.targetRange ? locationLink.targetRange : locationNorm.range
+        ).uri;
         return {
             originSelectionRange: locationLink.originSelectionRange
                 ? this.toIncomingRange(cell, locationLink.originSelectionRange)
                 : undefined,
-            uri: cell.uri,
+            uri,
             range: locationLink.targetRange
                 ? this.toIncomingRange(cell, locationLink.targetRange)
                 : this.toIncomingRange(cell, locationNorm.range),
@@ -297,11 +471,21 @@ export class NotebookConverter {
         return item;
     }
 
-    private toIncomingRange(cell: TextDocument, range: Range) {
+    private toIncomingLocation(cell: TextDocument | Uri, range: Range): Location {
+        const uri = cell instanceof Uri ? <Uri>cell : cell.uri;
         const concatDocument = this.getConcatDocument(cell);
-        const startLoc = concatDocument.locationAt(range.start);
-        const endLoc = concatDocument.locationAt(range.end);
-        return new Range(startLoc.range.start, endLoc.range.end);
+        if (concatDocument) {
+            const startLoc = concatDocument.locationAt(range.start);
+            const endLoc = concatDocument.locationAt(range.end);
+            return {
+                uri: startLoc.uri,
+                range: new Range(startLoc.range.start, endLoc.range.end)
+            };
+        }
+        return {
+            uri,
+            range
+        };
     }
 
     private toOutgoingContentChangeEvent(cell: TextDocument, ev: TextDocumentContentChangeEvent) {
@@ -313,18 +497,35 @@ export class NotebookConverter {
         };
     }
 
-    private onDidOpenNotebook(doc: NotebookDocument) {
-        this.activeDocuments.push(new NotebookConcatDocument(doc, this.api, this.selector));
+    private getDocumentKey(uri: Uri): string {
+        // Use the path of the doc uri. It should be the same for all cells
+        if (os.platform() === 'win32') {
+            return uri.fsPath.toLowerCase();
+        }
+        return uri.fsPath;
     }
 
-    private onDidCloseNotebook(doc: NotebookDocument) {
-        const index = this.activeDocuments.findIndex((c) => c.notebookUri === doc.uri);
-        if (index >= 0) {
-            this.activeDocuments.splice(index, 1);
+    private onDidOpenNotebook(doc: NotebookDocument) {
+        if (this.notebookFilter.test(doc.fileName)) {
+            const key = this.getDocumentKey(doc.uri);
+            this.activeDocuments.set(key, new NotebookConcatDocument(doc, this.api, this.cellSelector));
         }
     }
 
-    private getConcatDocument(cell: TextDocument): NotebookConcatTextDocument {
-        return this.activeDocuments.find((c) => c.concatDocument.contains(cell.uri))!.concatDocument;
+    private onDidCloseNotebook(doc: NotebookDocument) {
+        if (this.notebookFilter.test(doc.fileName)) {
+            const key = this.getDocumentKey(doc.uri);
+            this.activeDocuments.delete(key);
+        }
+    }
+
+    private getTextDocumentWrapper(cell: TextDocument | Uri): NotebookConcatDocument | undefined {
+        const uri = cell instanceof Uri ? <Uri>cell : cell.uri;
+        const key = this.getDocumentKey(uri);
+        return this.activeDocuments.get(key);
+    }
+
+    private getConcatDocument(cell: TextDocument | Uri): NotebookConcatTextDocument | undefined {
+        return this.getTextDocumentWrapper(cell)?.concatDocument;
     }
 }

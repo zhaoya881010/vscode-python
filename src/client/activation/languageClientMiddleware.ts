@@ -134,7 +134,7 @@ export class LanguageClientMiddleware implements Middleware {
             experimentsManager.sendTelemetryIfInExperiment(group.control);
         }
         if (experimentsManager.inExperiment(NotebookEditorSupport.nativeNotebookExperiment)) {
-            this.notebookAddon = new NotebookMiddlewareAddon(notebookApi, PYTHON_LANGUAGE);
+            this.notebookAddon = new NotebookMiddlewareAddon(notebookApi, PYTHON_LANGUAGE, /.*\.ipynb/m);
         }
     }
 
@@ -331,7 +331,7 @@ export class LanguageClientMiddleware implements Middleware {
         }
     }
 
-    private callNext(funcName: string, args: IArguments) {
+    private callNext(funcName: keyof NotebookMiddlewareAddon, args: IArguments) {
         if (this.notebookAddon) {
             // It would be nice to use args.callee, but not supported in strict mode
             // tslint:disable-next-line: no-any
