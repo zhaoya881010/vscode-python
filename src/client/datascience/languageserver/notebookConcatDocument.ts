@@ -68,7 +68,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
         const dir = path.dirname(notebookDoc.uri.fsPath);
         // Note: Has to be different than the prefix for old notebook editor (HiddenFileFormat) so
         // that the caller doesn't remove diagnostics for this document.
-        this.dummyFilePath = path.join(dir, `_NotebookConcat_${uuid().replace(/-/g, '')}`);
+        this.dummyFilePath = path.join(dir, `_NotebookConcat_${uuid().replace(/-/g, '')}.py`);
         this.dummyUri = Uri.file(this.dummyFilePath);
         this.concatDocument = notebookApi.createConcatTextDocument(notebookDoc, selector);
         this.onDidChangeSubscription = this.concatDocument.onDidChange(this.onDidChange, this);

@@ -332,6 +332,8 @@ export class LanguageClientMiddleware implements Middleware {
     }
 
     private callNext(funcName: keyof NotebookMiddlewareAddon, args: IArguments) {
+        // This function uses the last argument to call the 'next' item. If we're allowing notebook
+        // middleware, it calls into the notebook middleware first.
         if (this.notebookAddon) {
             // It would be nice to use args.callee, but not supported in strict mode
             // tslint:disable-next-line: no-any

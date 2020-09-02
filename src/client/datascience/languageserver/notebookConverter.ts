@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 import * as os from 'os';
+import * as path from 'path';
 import {
     CodeAction,
     CodeActionContext,
@@ -32,6 +33,16 @@ import {
 } from 'vscode';
 import { IVSCodeNotebook } from '../../common/application/types';
 import { NotebookConcatDocument } from './notebookConcatDocument';
+
+function arePathsSame(path1: string, path2: string): boolean {
+    path1 = path.normalize(path1);
+    path2 = path.normalize(path2);
+    if (os.platform() === 'win32') {
+        return path1.toUpperCase() === path2.toUpperCase();
+    } else {
+        return path1 === path2;
+    }
+}
 
 export class NotebookConverter implements Disposable {
     private activeDocuments: Map<string, NotebookConcatDocument> = new Map<string, NotebookConcatDocument>();
@@ -84,7 +95,7 @@ export class NotebookConverter implements Disposable {
     }
 
     public toIncomingDiagnosticsMap(uri: Uri, diagnostics: Diagnostic[]): Map<Uri, Diagnostic[]> {
-        const wrapper = [...this.activeDocuments.values()].find((d) => d.uri === uri);
+        const wrapper = [...this.activeDocuments.values()].find((d) => arePathsSame(d.uri.fsPath, uri.fsPath));
         const result = new Map<Uri, Diagnostic[]>();
 
         if (wrapper) {
