@@ -23,7 +23,7 @@ export const NotebookConcatPrefix = '_NotebookConcat_';
  */
 export class NotebookConcatDocument implements TextDocument, IDisposable {
     public get notebookUri() {
-        return this.notebookDoc.uri;
+        return this.notebook.uri;
     }
 
     public get uri() {
@@ -35,11 +35,11 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
     }
 
     public get isUntitled() {
-        return this.notebookDoc.isUntitled;
+        return this.notebook.isUntitled;
     }
 
     public get languageId() {
-        return this.notebookDoc.languages[0];
+        return this.notebook.languages[0];
     }
 
     public get version() {
@@ -47,7 +47,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
     }
 
     public get isDirty() {
-        return this.notebookDoc.isDirty;
+        return this.notebook.isDirty;
     }
 
     public get isClosed() {
@@ -57,7 +57,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
         return EndOfLine.LF;
     }
     public get lineCount() {
-        return this.notebookDoc.cells.map((c) => c.document.lineCount).reduce((p, c) => p + c);
+        return this.notebook.cells.map((c) => c.document.lineCount).reduce((p, c) => p + c);
     }
     public firedOpen = false;
     public firedClose = false;
@@ -66,13 +66,13 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
     private dummyUri: Uri;
     private _version = 1;
     private onDidChangeSubscription: Disposable;
-    constructor(private notebookDoc: NotebookDocument, notebookApi: IVSCodeNotebook, selector: DocumentSelector) {
-        const dir = path.dirname(notebookDoc.uri.fsPath);
+    constructor(public notebook: NotebookDocument, notebookApi: IVSCodeNotebook, selector: DocumentSelector) {
+        const dir = path.dirname(notebook.uri.fsPath);
         // Note: Has to be different than the prefix for old notebook editor (HiddenFileFormat) so
         // that the caller doesn't remove diagnostics for this document.
         this.dummyFilePath = path.join(dir, `${NotebookConcatPrefix}${uuid().replace(/-/g, '')}.py`);
         this.dummyUri = Uri.file(this.dummyFilePath);
-        this.concatDocument = notebookApi.createConcatTextDocument(notebookDoc, selector);
+        this.concatDocument = notebookApi.createConcatTextDocument(notebook, selector);
         this.onDidChangeSubscription = this.concatDocument.onDidChange(this.onDidChange, this);
     }
 
@@ -93,7 +93,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
         const location = this.concatDocument.locationAt(position);
 
         // Get the cell at this location
-        const cell = this.notebookDoc.cells.find((c) => c.uri.toString() === location.uri.toString());
+        const cell = this.notebook.cells.find((c) => c.uri.toString() === location.uri.toString());
         return cell!.document.lineAt(location.range.start);
     }
 
@@ -114,7 +114,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
         const location = this.concatDocument.locationAt(position);
 
         // Get the cell at this location
-        const cell = this.notebookDoc.cells.find((c) => c.uri.toString() === location.uri.toString());
+        const cell = this.notebook.cells.find((c) => c.uri.toString() === location.uri.toString());
         return cell!.document.getWordRangeAtPosition(location.range.start, regexp);
     }
 
@@ -128,7 +128,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
 
     public getCellAtPosition(position: Position) {
         const location = this.concatDocument.locationAt(position);
-        return this.notebookDoc.cells.find((c) => c.uri === location.uri);
+        return this.notebook.cells.find((c) => c.uri === location.uri);
     }
 
     private onDidChange() {

@@ -90,6 +90,13 @@ export class NotebookConverter implements Disposable {
         const result = new Map<Uri, Diagnostic[]>();
 
         if (wrapper) {
+            // Diagnostics are supposed to be per file and are updated each time
+            // Make sure to clear out old ones first
+            wrapper.notebook.cells.forEach((c) => {
+                result.set(c.uri, []);
+            });
+
+            // Then for all the new ones, set their values.
             diagnostics.forEach((d) => {
                 const location = wrapper.concatDocument.locationAt(d.range);
                 let list = result.get(location.uri);

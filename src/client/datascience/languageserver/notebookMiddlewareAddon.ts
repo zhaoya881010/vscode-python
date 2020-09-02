@@ -476,7 +476,9 @@ export class NotebookMiddlewareAddon implements Middleware, Disposable {
     }
 
     public handleDiagnostics(uri: Uri, diagnostics: Diagnostic[], next: HandleDiagnosticsSignature) {
-        // Remap any wrapped documents so that diagnostics appear in the cells
+        // Remap any wrapped documents so that diagnostics appear in the cells. Note that if we
+        // get a diagnostics list for our concated document, we have to tell VS code about EVERY cell.
+        // Otherwise old messages for cells that didn't change this time won't go away.
         const newDiagMapping = this.converter.toIncomingDiagnosticsMap(uri, diagnostics);
         [...newDiagMapping.keys()].forEach((k) => next(k, newDiagMapping.get(k)!));
     }
