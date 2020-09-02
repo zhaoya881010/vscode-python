@@ -93,7 +93,7 @@ export class NotebookMiddlewareAddon implements Middleware, Disposable {
     public didOpen(document: TextDocument, next: (ev: TextDocument) => void) {
         // If this is a notebook cell, change this into a concat document if this is the first time.
         if (isNotebookCell(document.uri)) {
-            if (this.converter.hasFiredOpen(document)) {
+            if (!this.converter.hasFiredOpen(document)) {
                 this.converter.firedOpen(document);
                 const newDoc = this.converter.toOutgoingDocument(document);
                 return next(newDoc);

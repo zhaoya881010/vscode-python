@@ -16,6 +16,8 @@ import {
 import { IVSCodeNotebook } from '../../common/application/types';
 import { IDisposable } from '../../common/types';
 
+export const NotebookConcatPrefix = '_NotebookConcat_';
+
 /**
  * This helper class is used to present a converted document to an LS
  */
@@ -68,7 +70,7 @@ export class NotebookConcatDocument implements TextDocument, IDisposable {
         const dir = path.dirname(notebookDoc.uri.fsPath);
         // Note: Has to be different than the prefix for old notebook editor (HiddenFileFormat) so
         // that the caller doesn't remove diagnostics for this document.
-        this.dummyFilePath = path.join(dir, `_NotebookConcat_${uuid().replace(/-/g, '')}.py`);
+        this.dummyFilePath = path.join(dir, `${NotebookConcatPrefix}${uuid().replace(/-/g, '')}.py`);
         this.dummyUri = Uri.file(this.dummyFilePath);
         this.concatDocument = notebookApi.createConcatTextDocument(notebookDoc, selector);
         this.onDidChangeSubscription = this.concatDocument.onDidChange(this.onDidChange, this);

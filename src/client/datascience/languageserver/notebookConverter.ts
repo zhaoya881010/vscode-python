@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 import * as os from 'os';
-import * as path from 'path';
 import {
     CodeAction,
     CodeActionContext,
@@ -32,20 +31,12 @@ import {
     WorkspaceEdit
 } from 'vscode';
 import { IVSCodeNotebook } from '../../common/application/types';
-import { NotebookConcatDocument } from './notebookConcatDocument';
-
-function arePathsSame(path1: string, path2: string): boolean {
-    path1 = path.normalize(path1);
-    path2 = path.normalize(path2);
-    if (os.platform() === 'win32') {
-        return path1.toUpperCase() === path2.toUpperCase();
-    } else {
-        return path1 === path2;
-    }
-}
+import { isUri } from '../../common/utils/misc';
+import { NotebookConcatDocument, NotebookConcatPrefix } from './notebookConcatDocument';
 
 export class NotebookConverter implements Disposable {
     private activeDocuments: Map<string, NotebookConcatDocument> = new Map<string, NotebookConcatDocument>();
+    private activeDocumentsOutgoingMap: Map<string, NotebookConcatDocument> = new Map<string, NotebookConcatDocument>();
     private disposables: Disposable[] = [];
 
     constructor(private api: IVSCodeNotebook, private cellSelector: DocumentSelector, private notebookFilter: RegExp) {
@@ -95,7 +86,7 @@ export class NotebookConverter implements Disposable {
     }
 
     public toIncomingDiagnosticsMap(uri: Uri, diagnostics: Diagnostic[]): Map<Uri, Diagnostic[]> {
-        const wrapper = [...this.activeDocuments.values()].find((d) => arePathsSame(d.uri.fsPath, uri.fsPath));
+        const wrapper = this.getWrapperFromOutgoingUri(uri);
         const result = new Map<Uri, Diagnostic[]>();
 
         if (wrapper) {
@@ -358,6 +349,11 @@ export class NotebookConverter implements Disposable {
         return this.toIncomingLocation(cell, range).range;
     }
 
+    public toIncomingPosition(cell: TextDocument | Uri, position: Position) {
+        // This is dangerous as the URI is not remapped (location uri may be different)
+        return this.toIncomingLocation(cell, new Range(position, position)).range.start;
+    }
+
     private getCellAtLocation(location: Location) {
         const key = this.getDocumentKey(location.uri);
         const wrapper = this.activeDocuments.get(key);
@@ -379,12 +375,47 @@ export class NotebookConverter implements Disposable {
         if (action instanceof CodeAction) {
             return {
                 ...action,
+                command: action.command ? this.toIncomingCommand(cell, action.command) : undefined,
                 diagnostics: action.diagnostics
                     ? action.diagnostics.map(this.toIncomingDiagnostic.bind(this, cell))
                     : undefined
             };
         }
-        return action;
+        return this.toIncomingCommand(cell, action);
+    }
+
+    private toIncomingCommand(cell: TextDocument, command: Command): Command {
+        return {
+            ...command,
+            arguments: command.arguments ? command.arguments.map(this.toIncomingArgument.bind(this, cell)) : undefined
+        };
+    }
+
+    // tslint:disable-next-line: no-any
+    private toIncomingArgument(cell: TextDocument, argument: any): any {
+        // URIs in a command should be remapped to the cell document if part
+        // of one of our open notebooks
+        if (isUri(argument)) {
+            const wrapper = this.getWrapperFromOutgoingUri(argument);
+            if (wrapper) {
+                return cell.uri;
+            }
+        }
+        if (typeof argument === 'string' && argument.includes(NotebookConcatPrefix)) {
+            const wrapper = this.getWrapperFromOutgoingUri(Uri.file(argument));
+            if (wrapper) {
+                return cell.uri;
+            }
+        }
+        if (typeof argument === 'object' && argument.hasOwnProperty('start') && argument.hasOwnProperty('end')) {
+            // This is a range like object. Convert it too.
+            return this.toIncomingRange(cell, this.toRange(<Range>argument));
+        }
+        if (typeof argument === 'object' && argument.hasOwnProperty('line') && argument.hasOwnProperty('character')) {
+            // This is a position like object. Convert it too.
+            return this.toIncomingPosition(cell, this.toPosition(<Position>argument));
+        }
+        return argument;
     }
 
     private toOutgoingDiagnostic(cell: TextDocument, diagnostic: Diagnostic): Diagnostic {
@@ -519,15 +550,25 @@ export class NotebookConverter implements Disposable {
     private onDidOpenNotebook(doc: NotebookDocument) {
         if (this.notebookFilter.test(doc.fileName)) {
             const key = this.getDocumentKey(doc.uri);
-            this.activeDocuments.set(key, new NotebookConcatDocument(doc, this.api, this.cellSelector));
+            const wrapper = new NotebookConcatDocument(doc, this.api, this.cellSelector);
+            this.activeDocuments.set(key, wrapper);
+            this.activeDocumentsOutgoingMap.set(this.getDocumentKey(wrapper.uri), wrapper);
         }
     }
 
     private onDidCloseNotebook(doc: NotebookDocument) {
         if (this.notebookFilter.test(doc.fileName)) {
             const key = this.getDocumentKey(doc.uri);
+            const wrapper = this.activeDocuments.get(key);
             this.activeDocuments.delete(key);
+            if (wrapper) {
+                this.activeDocumentsOutgoingMap.delete(this.getDocumentKey(wrapper.uri));
+            }
         }
+    }
+
+    private getWrapperFromOutgoingUri(outgoingUri: Uri): NotebookConcatDocument | undefined {
+        return this.activeDocumentsOutgoingMap.get(this.getDocumentKey(outgoingUri));
     }
 
     private getTextDocumentWrapper(cell: TextDocument | Uri): NotebookConcatDocument | undefined {
@@ -538,5 +579,13 @@ export class NotebookConverter implements Disposable {
 
     private getConcatDocument(cell: TextDocument | Uri): NotebookConcatTextDocument | undefined {
         return this.getTextDocumentWrapper(cell)?.concatDocument;
+    }
+
+    private toRange(rangeLike: Range): Range {
+        return new Range(this.toPosition(rangeLike.start), this.toPosition(rangeLike.end));
+    }
+
+    private toPosition(positionLike: Position): Position {
+        return new Position(positionLike.line, positionLike.character);
     }
 }
