@@ -494,25 +494,34 @@ export class NotebookConverter implements Disposable {
         };
     }
 
-    private toIncomingLocationFromLink(cell: TextDocument | Uri, location: Location | LocationLink) {
+    private toIncomingLocationFromLink(_cell: TextDocument | Uri, location: Location | LocationLink) {
         const locationLink = <LocationLink>location;
         const locationNorm = <Location>location;
-        const uri = this.toIncomingLocation(
+        const uri = this.toIncomingUri(
             locationLink.targetUri || locationNorm.uri,
             locationLink.targetRange ? locationLink.targetRange : locationNorm.range
-        ).uri;
+        );
         return {
             originSelectionRange: locationLink.originSelectionRange
-                ? this.toIncomingRange(cell, locationLink.originSelectionRange)
+                ? this.toIncomingRange(uri, locationLink.originSelectionRange)
                 : undefined,
             uri,
             range: locationLink.targetRange
-                ? this.toIncomingRange(cell, locationLink.targetRange)
-                : this.toIncomingRange(cell, locationNorm.range),
+                ? this.toIncomingRange(uri, locationLink.targetRange)
+                : this.toIncomingRange(uri, locationNorm.range),
             targetSelectionRange: locationLink.targetSelectionRange
-                ? this.toIncomingRange(cell, locationLink.targetSelectionRange)
+                ? this.toIncomingRange(uri, locationLink.targetSelectionRange)
                 : undefined
         };
+    }
+
+    private toIncomingUri(outgoingUri: Uri, range: Range) {
+        const wrapper = this.getWrapperFromOutgoingUri(outgoingUri);
+        if (wrapper) {
+            const location = wrapper.concatDocument.locationAt(range);
+            return location.uri;
+        }
+        return outgoingUri;
     }
 
     private toIncomingCompletion(cell: TextDocument, item: CompletionItem) {
