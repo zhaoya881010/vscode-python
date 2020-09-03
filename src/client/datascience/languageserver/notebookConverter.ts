@@ -31,8 +31,17 @@ import {
     WorkspaceEdit
 } from 'vscode';
 import { IVSCodeNotebook } from '../../common/application/types';
-import { isUri } from '../../common/utils/misc';
-import { NotebookConcatDocument, NotebookConcatPrefix } from './notebookConcatDocument';
+import { NotebookConcatDocument } from './notebookConcatDocument';
+
+/* Used by code actions. Disabled for now.
+function toRange(rangeLike: Range): Range {
+    return new Range(toPosition(rangeLike.start), toPosition(rangeLike.end));
+}
+
+function toPosition(positionLike: Position): Position {
+    return new Position(positionLike.line, positionLike.character);
+}
+*/
 
 export class NotebookConverter implements Disposable {
     private activeDocuments: Map<string, NotebookConcatDocument> = new Map<string, NotebookConcatDocument>();
@@ -281,9 +290,13 @@ export class NotebookConverter implements Disposable {
         };
     }
 
-    public toIncomingActions(cell: TextDocument, actions: (Command | CodeAction)[] | null | undefined) {
+    public toIncomingActions(_cell: TextDocument, actions: (Command | CodeAction)[] | null | undefined) {
         if (Array.isArray(actions)) {
-            return actions.map(this.toIncomingAction.bind(this, cell));
+            // Disable for now because actions are handled directly by the LS sometimes (at least in pylance)
+            // If we translate or use them they will either
+            // 1) Do nothing because the LS doesn't know about the ipynb
+            // 2) Crash (pylance is doing this now)
+            return undefined;
         }
         return actions;
     }
@@ -378,6 +391,7 @@ export class NotebookConverter implements Disposable {
         return symbol;
     }
 
+    /* Renable this if actions can be translated
     private toIncomingAction(cell: TextDocument, action: Command | CodeAction): Command | CodeAction {
         if (action instanceof CodeAction) {
             return {
@@ -424,6 +438,7 @@ export class NotebookConverter implements Disposable {
         }
         return argument;
     }
+    */
 
     private toOutgoingDiagnostic(cell: TextDocument, diagnostic: Diagnostic): Diagnostic {
         return {
@@ -586,13 +601,5 @@ export class NotebookConverter implements Disposable {
 
     private getConcatDocument(cell: TextDocument | Uri): NotebookConcatTextDocument | undefined {
         return this.getTextDocumentWrapper(cell)?.concatDocument;
-    }
-
-    private toRange(rangeLike: Range): Range {
-        return new Range(this.toPosition(rangeLike.start), this.toPosition(rangeLike.end));
-    }
-
-    private toPosition(positionLike: Position): Position {
-        return new Position(positionLike.line, positionLike.character);
     }
 }
