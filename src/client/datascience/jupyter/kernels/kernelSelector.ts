@@ -167,7 +167,8 @@ export class KernelSelector implements IKernelSelectionUsage {
         notebookMetadata?: nbformat.INotebookMetadata,
         disableUI?: boolean,
         cancelToken?: CancellationToken,
-        ignoreDependencyCheck?: boolean
+        ignoreDependencyCheck?: boolean,
+        skipPreWarm?: boolean
     ): Promise<
         KernelSpecConnectionMetadata | PythonKernelConnectionMetadata | DefaultKernelConnectionMetadata | undefined
     > {
@@ -179,9 +180,11 @@ export class KernelSelector implements IKernelSelectionUsage {
         };
         // When this method is called, we know we've started a local jupyter server or are connecting raw
         // Lets pre-warm the list of local kernels.
-        this.selectionProvider
-            .getKernelSelectionsForLocalSession(resource, type, sessionManager, cancelToken)
-            .ignoreErrors();
+        if (!skipPreWarm) {
+            this.selectionProvider
+                .getKernelSelectionsForLocalSession(resource, type, sessionManager, cancelToken)
+                .ignoreErrors();
+        }
 
         let selection:
             | KernelSpecConnectionMetadata

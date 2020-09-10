@@ -19,9 +19,24 @@ import { areKernelConnectionsEqual } from '../jupyter/kernels/helpers';
 import { KernelSelectionProvider } from '../jupyter/kernels/kernelSelections';
 import { KernelSelector } from '../jupyter/kernels/kernelSelector';
 import { KernelSwitcher } from '../jupyter/kernels/kernelSwitcher';
-import { getKernelConnectionId, IKernelProvider, KernelConnectionMetadata } from '../jupyter/kernels/types';
+import {
+    DefaultKernelConnectionMetadata,
+    getKernelConnectionId,
+    IKernelProvider,
+    IKernelSpecQuickPickItem,
+    KernelConnectionMetadata,
+    KernelSpecConnectionMetadata,
+    LiveKernelConnectionMetadata,
+    PythonKernelConnectionMetadata
+} from '../jupyter/kernels/types';
 import { INotebookStorageProvider } from '../notebookStorage/notebookStorageProvider';
-import { INotebook, INotebookProvider } from '../types';
+import {
+    IJupyterConnection,
+    IJupyterSessionManagerFactory,
+    INotebook,
+    INotebookProvider,
+    IRawConnection
+} from '../types';
 import { getNotebookMetadata, isJupyterNotebook, updateKernelInNotebookMetadata } from './helpers/helpers';
 
 class VSCodeNotebookKernelMetadata implements VSCNotebookKernel {
@@ -68,7 +83,8 @@ export class VSCodeKernelPickerProvider implements NotebookKernelProvider {
         @inject(INotebookProvider) private readonly notebookProvider: INotebookProvider,
         @inject(KernelSwitcher) private readonly kernelSwitcher: KernelSwitcher,
         @inject(IDisposableRegistry) private readonly disposables: IDisposableRegistry,
-        @inject(IInterpreterService) private readonly interpreterService: IInterpreterService
+        @inject(IInterpreterService) private readonly interpreterService: IInterpreterService,
+        @inject(IJupyterSessionManagerFactory) private jupyterSessionManagerFactory: IJupyterSessionManagerFactory
     ) {
         this.kernelSelectionProvider.onDidChangeSelections(
             (e) => {
@@ -89,9 +105,13 @@ export class VSCodeKernelPickerProvider implements NotebookKernelProvider {
         document: NotebookDocument,
         token: CancellationToken
     ): Promise<VSCodeNotebookKernelMetadata[]> {
+        // Make sure we have a connection or we can't get remote kernels.
+        const connection = await this.notebookProvider.connect({ getOnly: false, disableUI: false });
+
+        // Then find the preferred kernel and our list of kernels.
         const [preferredKernel, kernels, activeInterpreter] = await Promise.all([
-            this.getPreferredKernel(document, token),
-            this.kernelSelectionProvider.getKernelSelectionsForLocalSession(document.uri, 'raw', undefined, token),
+            this.getPreferredKernel(document, connection, token),
+            this.getKernelSelections(document, connection, token),
             this.interpreterService.getActiveInterpreter(document.uri)
         ]);
         if (token.isCancellationRequested) {
@@ -187,7 +207,11 @@ export class VSCodeKernelPickerProvider implements NotebookKernelProvider {
             );
         }
     }
-    private async getPreferredKernel(document: NotebookDocument, token: CancellationToken) {
+    private async getPreferredKernel(
+        document: NotebookDocument,
+        connection: IRawConnection | IJupyterConnection | undefined,
+        token: CancellationToken
+    ) {
         // If we already have a kernel selected, then return that.
         const editor =
             this.notebook.notebookEditors.find((e) => e.document === document) ||
@@ -197,15 +221,41 @@ export class VSCodeKernelPickerProvider implements NotebookKernelProvider {
         if (editor && editor.kernel && editor.kernel instanceof VSCodeNotebookKernelMetadata) {
             return editor.kernel.selection;
         }
-        return this.kernelSelector.getPreferredKernelForLocalConnection(
-            document.uri,
-            'raw',
-            undefined,
-            getNotebookMetadata(document),
-            true,
-            token,
-            true
-        );
+
+        // TODO: Need to probably reuse the kernel specs returned from getKernelSelections
+        // and then use the same algorithm as KernelSelector.getPreferredKernelForLocalConnection does (well for local)
+        // and KernelSelector.getPreferredKernelForRemoteConnection for remote but without getting kernel specs a second time.
+
+        return itemToReturn;
+    }
+
+    private async getKernelSelections(
+        document: NotebookDocument,
+        connection: IRawConnection | IJupyterConnection | undefined,
+        token: CancellationToken
+    ): Promise<
+        IKernelSpecQuickPickItem<
+            LiveKernelConnectionMetadata | KernelSpecConnectionMetadata | PythonKernelConnectionMetadata
+        >[]
+    > {
+        // If remote, go down special path for remote. We have to create a session manager
+        if (connection && !connection.localLaunch) {
+            const session = await this.jupyterSessionManagerFactory.create(connection);
+            try {
+                return this.kernelSelectionProvider.getKernelSelectionsForRemoteSession(document.uri, session, token);
+            } finally {
+                session.dispose().ignoreErrors();
+            }
+        } else if (connection) {
+            return this.kernelSelectionProvider.getKernelSelectionsForLocalSession(
+                document.uri,
+                connection.type,
+                undefined,
+                token
+            );
+        }
+
+        return [];
     }
     private async onDidChangeActiveNotebookKernel({
         document,
