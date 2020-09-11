@@ -325,7 +325,8 @@ suite('Terminal - Code Execution', () => {
                     .setup((p) =>
                         p.createCondaExecutionService(TypeMoq.It.isAny(), TypeMoq.It.isAny(), TypeMoq.It.isAny())
                     )
-                    .returns(() => Promise.resolve(condaExecutionService));
+                    // tslint:disable-next-line: no-any
+                    .returns(() => Promise.resolve(condaExecutionService as any));
 
                 await executor.executeFile(file);
 
@@ -436,7 +437,8 @@ suite('Terminal - Code Execution', () => {
                     .setup((p) =>
                         p.createCondaExecutionService(TypeMoq.It.isAny(), TypeMoq.It.isAny(), TypeMoq.It.isAny())
                     )
-                    .returns(() => Promise.resolve(condaExecutionService));
+                    // tslint:disable-next-line: no-any
+                    .returns(() => Promise.resolve(condaExecutionService as any));
 
                 const djangoArgs = isDjangoRepl ? ['manage.py', 'shell'] : [];
                 const expectedTerminalArgs = [...terminalArgs, ...djangoArgs];

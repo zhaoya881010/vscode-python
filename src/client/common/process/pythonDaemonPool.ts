@@ -19,6 +19,7 @@ import {
     isDaemonPoolCreationOption,
     ObservableExecutionResult,
     PooledDaemonExecutionFactoryCreationOptions,
+    PythonExecutionInfo,
     SpawnOptions
 } from './types';
 
@@ -39,6 +40,18 @@ export class PythonDaemonExecutionServicePool extends PythonDaemonFactory implem
     ) {
         super(disposables, options, pythonExecutionService, platformService, activatedEnvVariables);
         this.disposables.push(this);
+    }
+    public getExecutionDetails(_options: {
+        args: string[];
+        options: SpawnOptions;
+        moduleName?: string | undefined;
+    }): {
+        execDetails: PythonExecutionInfo;
+        execObservableDetails: PythonExecutionInfo;
+        execModuleDetails?: PythonExecutionInfo | undefined;
+        execModuleObservableDetails?: PythonExecutionInfo | undefined;
+    } {
+        throw new Error('Method not implemented.');
     }
     public async initialize() {
         if (!isDaemonPoolCreationOption(this.options)) {

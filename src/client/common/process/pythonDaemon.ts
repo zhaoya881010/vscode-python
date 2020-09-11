@@ -16,6 +16,7 @@ import {
     IPythonDaemonExecutionService,
     IPythonExecutionService,
     ObservableExecutionResult,
+    PythonExecutionInfo,
     SpawnOptions
 } from './types';
 
@@ -41,6 +42,18 @@ export class PythonDaemonExecutionService extends BasePythonDaemon implements IP
         connection: MessageConnection
     ) {
         super(pythonExecutionService, platformService, pythonPath, proc, connection);
+    }
+    public getExecutionDetails(_options: {
+        args: string[];
+        options: SpawnOptions;
+        moduleName?: string | undefined;
+    }): {
+        execDetails: PythonExecutionInfo;
+        execObservableDetails: PythonExecutionInfo;
+        execModuleDetails?: PythonExecutionInfo;
+        execModuleObservableDetails?: PythonExecutionInfo;
+    } {
+        throw new Error('Method not implemented.');
     }
     public async getInterpreterInformation(): Promise<InterpreterInformation | undefined> {
         try {
