@@ -96,10 +96,10 @@ async function activateLegacy(
     const standardOutputChannel = window.createOutputChannel(OutputChannelNames.python());
     addOutputChannelLogging(standardOutputChannel);
     const unitTestOutChannel = window.createOutputChannel(OutputChannelNames.pythonTest());
-    const jupyterOutputChannel = window.createOutputChannel(OutputChannelNames.jupyter());
+    // const jupyterOutputChannel = window.createOutputChannel(OutputChannelNames.jupyter());
     serviceManager.addSingletonInstance<OutputChannel>(IOutputChannel, standardOutputChannel, STANDARD_OUTPUT_CHANNEL);
     serviceManager.addSingletonInstance<OutputChannel>(IOutputChannel, unitTestOutChannel, TEST_OUTPUT_CHANNEL);
-    serviceManager.addSingletonInstance<OutputChannel>(IOutputChannel, jupyterOutputChannel, JUPYTER_OUTPUT_CHANNEL);
+    // serviceManager.addSingletonInstance<OutputChannel>(IOutputChannel, jupyterOutputChannel, JUPYTER_OUTPUT_CHANNEL);
 
     // Core registrations (non-feature specific).
     commonRegisterTypes(serviceManager);
@@ -189,8 +189,8 @@ async function activateLegacy(
         .catch((ex) => traceError('Python Extension: interpreterManager.refresh', ex));
 
     // Activate data science features
-    const dataScience = serviceManager.get<IDataScience>(IDataScience);
-    dataScience.activate().ignoreErrors();
+    // const dataScience = serviceManager.get<IDataScience>(IDataScience);
+    // dataScience.activate().ignoreErrors();
 
     context.subscriptions.push(new LinterCommands(serviceManager));
 
