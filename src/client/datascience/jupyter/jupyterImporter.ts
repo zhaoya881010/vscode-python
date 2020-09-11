@@ -4,7 +4,6 @@
 import '../../common/extensions';
 
 import { inject, injectable } from 'inversify';
-import * as os from 'os';
 import * as path from 'path';
 
 import { Uri } from 'vscode';
@@ -15,12 +14,7 @@ import { IConfigurationService, IDisposableRegistry } from '../../common/types';
 import * as localize from '../../common/utils/localize';
 import { noop } from '../../common/utils/misc';
 import { CodeSnippets, Identifiers } from '../constants';
-import {
-    IDataScienceFileSystem,
-    IJupyterExecution,
-    IJupyterInterpreterDependencyManager,
-    INotebookImporter
-} from '../types';
+import { IDataScienceFileSystem, INotebookImporter } from '../types';
 
 @injectable()
 export class JupyterImporter implements INotebookImporter {
@@ -39,48 +33,25 @@ export class JupyterImporter implements INotebookImporter {
 {{ cell.source | comment_lines }}
 {% endblock markdowncell %}`;
 
-    private templatePromise: Promise<string | undefined>;
-
     constructor(
         @inject(IDataScienceFileSystem) private fs: IDataScienceFileSystem,
         @inject(IDisposableRegistry) private disposableRegistry: IDisposableRegistry,
         @inject(IConfigurationService) private configuration: IConfigurationService,
-        @inject(IJupyterExecution) private jupyterExecution: IJupyterExecution,
         @inject(IWorkspaceService) private workspaceService: IWorkspaceService,
-        @inject(IPlatformService) private readonly platform: IPlatformService,
-        @inject(IJupyterInterpreterDependencyManager)
-        private readonly dependencyManager: IJupyterInterpreterDependencyManager
-    ) {
-        this.templatePromise = this.createTemplateFile();
-    }
+        @inject(IPlatformService) private readonly platform: IPlatformService
+    ) {}
 
-    public async importFromFile(sourceFile: Uri): Promise<string> {
-        const template = await this.templatePromise;
-
+    public async importFromFile(_sourceFile: Uri): Promise<string> {
         // If the user has requested it, add a cd command to the imported file so that relative paths still work
-        const settings = this.configuration.getSettings();
-        let directoryChange: string | undefined;
-        if (settings.datascience.changeDirOnImportExport) {
-            directoryChange = await this.calculateDirectoryChange(sourceFile);
-        }
-
-        // Before we try the import, see if we don't support it, if we don't give a chance to install dependencies
-        if (!(await this.jupyterExecution.isImportSupported())) {
-            await this.dependencyManager.installMissingDependencies();
-        }
-
-        // Use the jupyter nbconvert functionality to turn the notebook into a python file
-        if (await this.jupyterExecution.isImportSupported()) {
-            let fileOutput: string = await this.jupyterExecution.importNotebook(sourceFile, template);
-            if (fileOutput.includes('get_ipython()')) {
-                fileOutput = this.addIPythonImport(fileOutput);
-            }
-            if (directoryChange) {
-                fileOutput = this.addDirectoryChange(fileOutput, directoryChange);
-            }
-            return this.addInstructionComments(fileOutput);
-        }
-
+        // const settings = this.configuration.getSettings();
+        // let directoryChange: string | undefined;
+        // if (settings.datascience.changeDirOnImportExport) {
+        //     directoryChange = await this.calculateDirectoryChange(sourceFile);
+        // }
+        // tslint:disable-next-line: no-console
+        console.log(this.calculateDirectoryChange.toString() ? '' : '');
+        // tslint:disable-next-line: no-console
+        console.log(this.createTemplateFile.toString() ? '' : '');
         throw new Error(localize.DataScience.jupyterNbConvertNotSupported());
     }
 
@@ -88,27 +59,9 @@ export class JupyterImporter implements INotebookImporter {
         this.isDisposed = true;
     };
 
-    private addInstructionComments = (pythonOutput: string): string => {
-        const comments = localize.DataScience.instructionComments().format(this.defaultCellMarker);
-        return comments.concat(pythonOutput);
-    };
-
     private get defaultCellMarker(): string {
         return this.configuration.getSettings().datascience.defaultCellMarker || Identifiers.DefaultCodeCellMarker;
     }
-
-    private addIPythonImport = (pythonOutput: string): string => {
-        return CodeSnippets.ImportIPython.format(this.defaultCellMarker, pythonOutput);
-    };
-
-    private addDirectoryChange = (pythonOutput: string, directoryChange: string): string => {
-        const newCode = CodeSnippets.ChangeDirectory.join(os.EOL).format(
-            localize.DataScience.importChangeDirectoryComment().format(this.defaultCellMarker),
-            CodeSnippets.ChangeDirectoryCommentIdentifier,
-            directoryChange
-        );
-        return newCode.concat(pythonOutput);
-    };
 
     // When importing a file, calculate if we can create a %cd so that the relative paths work
     private async calculateDirectoryChange(notebookFile: Uri): Promise<string | undefined> {

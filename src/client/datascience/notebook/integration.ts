@@ -41,6 +41,7 @@ export class NotebookIntegration implements IExtensionSingleActivationService {
         @inject(IExtensionContext) private readonly extensionContext: IExtensionContext
     ) {}
     public async activate(): Promise<void> {
+        return;
         // This condition is temporary.
         // If user belongs to the experiment, then make the necessary changes to package.json.
         // Once the API is final, we won't need to modify the package.json.
@@ -97,6 +98,9 @@ export class NotebookIntegration implements IExtensionSingleActivationService {
         await this.enableDisableEditorAssociation(true);
     }
     private async enableDisableEditorAssociation(enable: boolean) {
+        if (!enable) {
+            return;
+        }
         // This code is temporary.
         const settings = this.workspace.getConfiguration('workbench', undefined);
         const editorAssociations = settings.get('editorAssociations') as {

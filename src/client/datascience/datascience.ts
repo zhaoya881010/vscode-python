@@ -39,6 +39,9 @@ export class DataScience implements IDataScience {
     }
 
     public async activate(): Promise<void> {
+        if (!this.configuration.getSettings(undefined).datascience.enabled) {
+            return;
+        }
         this.commandRegistry.register();
 
         this.extensionContext.subscriptions.push(

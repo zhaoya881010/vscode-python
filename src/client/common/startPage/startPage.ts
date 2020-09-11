@@ -8,7 +8,7 @@ import { ConfigurationTarget, EventEmitter, Uri, ViewColumn } from 'vscode';
 import { IExtensionSingleActivationService } from '../../activation/types';
 import { EXTENSION_ROOT_DIR } from '../../constants';
 import { Commands, Telemetry } from '../../datascience/constants';
-import { ICodeCssGenerator, INotebookEditorProvider, IThemeFinder } from '../../datascience/types';
+import { ICodeCssGenerator, IThemeFinder } from '../../datascience/types';
 import { WebviewPanelHost } from '../../datascience/webviews/webviewPanelHost';
 import { sendTelemetryEvent } from '../../telemetry';
 import {
@@ -19,7 +19,6 @@ import {
     IWebviewPanelProvider,
     IWorkspaceService
 } from '../application/types';
-import { IFileSystem } from '../platform/types';
 import { IConfigurationService, IExtensionContext, Resource } from '../types';
 import * as localize from '../utils/localize';
 import { StopWatch } from '../utils/stopWatch';
@@ -45,8 +44,8 @@ export class StartPage extends WebviewPanelHost<IStartPageMapping>
         @inject(IThemeFinder) themeFinder: IThemeFinder,
         @inject(IConfigurationService) protected configuration: IConfigurationService,
         @inject(IWorkspaceService) workspaceService: IWorkspaceService,
-        @inject(IFileSystem) private file: IFileSystem,
-        @inject(INotebookEditorProvider) private notebookEditorProvider: INotebookEditorProvider,
+        // @inject(IFileSystem) private file: IFileSystem,
+        // @inject(INotebookEditorProvider) private notebookEditorProvider: INotebookEditorProvider,
         @inject(ICommandManager) private readonly commandManager: ICommandManager,
         @inject(IDocumentManager) private readonly documentManager: IDocumentManager,
         @inject(IApplicationShell) private appShell: IApplicationShell,
@@ -129,13 +128,13 @@ export class StartPage extends WebviewPanelHost<IStartPageMapping>
                 sendTelemetryEvent(Telemetry.StartPageOpenBlankNotebook);
                 this.setTelemetryFlags();
 
-                const savedVersion: string | undefined = this.context.globalState.get('extensionVersion');
+                // const savedVersion: string | undefined = this.context.globalState.get('extensionVersion');
 
-                if (savedVersion) {
-                    await this.notebookEditorProvider.createNew();
-                } else {
-                    this.openSampleNotebook().ignoreErrors();
-                }
+                // if (savedVersion) {
+                //     // await this.notebookEditorProvider.createNew();
+                // } else {
+                //     this.openSampleNotebook().ignoreErrors();
+                // }
                 break;
             case StartPageMessages.OpenBlankPythonFile:
                 sendTelemetryEvent(Telemetry.StartPageOpenBlankPythonFile);
@@ -177,7 +176,7 @@ export class StartPage extends WebviewPanelHost<IStartPageMapping>
                 sendTelemetryEvent(Telemetry.StartPageOpenSampleNotebook);
                 this.setTelemetryFlags();
 
-                this.openSampleNotebook().ignoreErrors();
+                // this.openSampleNotebook().ignoreErrors();
                 break;
             case StartPageMessages.OpenFileBrowser:
                 sendTelemetryEvent(Telemetry.StartPageOpenFileBrowser);
@@ -279,24 +278,24 @@ export class StartPage extends WebviewPanelHost<IStartPageMapping>
         }
     }
 
-    private async openSampleNotebook(): Promise<void> {
-        const ipynb = '.ipynb';
-        const localizedFilePath = path.join(
-            EXTENSION_ROOT_DIR,
-            'pythonFiles',
-            localize.StartPage.sampleNotebook() + ipynb
-        );
-        let sampleNotebookPath: string;
+    // private async openSampleNotebook(): Promise<void> {
+    //     // const ipynb = '.ipynb';
+    //     // const localizedFilePath = path.join(
+    //     //     EXTENSION_ROOT_DIR,
+    //     //     'pythonFiles',
+    //     //     localize.StartPage.sampleNotebook() + ipynb
+    //     // );
+    //     // let sampleNotebookPath: string;
 
-        if (await this.file.fileExists(localizedFilePath)) {
-            sampleNotebookPath = localizedFilePath;
-        } else {
-            sampleNotebookPath = path.join(EXTENSION_ROOT_DIR, 'pythonFiles', 'Notebooks intro.ipynb');
-        }
+    //     // if (await this.file.fileExists(localizedFilePath)) {
+    //     //     sampleNotebookPath = localizedFilePath;
+    //     // } else {
+    //     //     sampleNotebookPath = path.join(EXTENSION_ROOT_DIR, 'pythonFiles', 'Notebooks intro.ipynb');
+    //     // }
 
-        const content = await this.file.readFile(sampleNotebookPath);
-        await this.notebookEditorProvider.createNew(content, localize.StartPage.sampleNotebook());
-    }
+    //     // const content = await this.file.readFile(sampleNotebookPath);
+    //     // await this.notebookEditorProvider.createNew(content, localize.StartPage.sampleNotebook());
+    // }
 
     private setTelemetryFlags() {
         if (this.firstTime) {

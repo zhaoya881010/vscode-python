@@ -11,6 +11,7 @@ import {
     ExecutionResult,
     IPythonExecutionService,
     ObservableExecutionResult,
+    PythonExecutionInfo,
     SpawnOptions
 } from '../../client/common/process/types';
 import { Architecture } from '../../client/common/utils/platform';
@@ -23,6 +24,18 @@ export class MockPythonExecutionService implements IPythonExecutionService {
 
     constructor() {
         this.procService = new ProcessService(new BufferDecoder());
+    }
+    public getExecutionDetails(_options: {
+        args: string[];
+        options: SpawnOptions;
+        moduleName?: string | undefined;
+    }): {
+        execDetails: PythonExecutionInfo;
+        execObservableDetails: PythonExecutionInfo;
+        execModuleDetails?: PythonExecutionInfo | undefined;
+        execModuleObservableDetails?: PythonExecutionInfo | undefined;
+    } {
+        throw new Error('Method not implemented.');
     }
 
     public getInterpreterInformation(): Promise<InterpreterInformation> {

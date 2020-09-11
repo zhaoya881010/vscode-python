@@ -79,7 +79,7 @@ suite('Import Tracker', () => {
         rewiremock.enable();
         rewiremock('vscode-extension-telemetry').with({ default: Reporter });
 
-        importTracker = new ImportTracker(documentManager.object, nativeProvider.object);
+        importTracker = new ImportTracker(documentManager.object);
     });
     teardown(() => {
         process.env.VSC_PYTHON_UNIT_TEST = oldValueOfVSC_PYTHON_UNIT_TEST;

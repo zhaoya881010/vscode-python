@@ -233,6 +233,7 @@ function createPythonService(
         execObservable: (a, o) => procs.execObservable(a, o),
         execModuleObservable: (m, a, o) => procs.execModuleObservable(m, a, o),
         exec: (a, o) => procs.exec(a, o),
-        execModule: (m, a, o) => procs.execModule(m, a, o)
+        execModule: (m, a, o) => procs.execModule(m, a, o),
+        getExecutionDetails: (options) => procs.getExecutionDetails(options)
     };
 }

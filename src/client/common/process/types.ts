@@ -163,8 +163,23 @@ export interface IPythonExecutionFactory {
     ): Promise<IPythonExecutionService | undefined>;
 }
 export const IPythonExecutionService = Symbol('IPythonExecutionService');
+export type PythonExecutionInfo = {
+    command: string;
+    args: string[];
+    options: SpawnOptions;
+};
 
 export interface IPythonExecutionService {
+    getExecutionDetails(options: {
+        args: string[];
+        options: SpawnOptions;
+        moduleName?: string;
+    }): {
+        execDetails: PythonExecutionInfo;
+        execObservableDetails: PythonExecutionInfo;
+        execModuleDetails?: PythonExecutionInfo;
+        execModuleObservableDetails?: PythonExecutionInfo;
+    };
     getInterpreterInformation(): Promise<InterpreterInformation | undefined>;
     getExecutablePath(): Promise<string>;
     isModuleInstalled(moduleName: string): Promise<boolean>;

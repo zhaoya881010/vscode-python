@@ -12,7 +12,7 @@ import { IDocumentManager } from '../common/application/types';
 import { isTestExecution } from '../common/constants';
 import '../common/extensions';
 import { noop } from '../common/utils/misc';
-import { ICell, INotebookEditor, INotebookEditorProvider, INotebookExecutionLogger } from '../datascience/types';
+import { ICell, INotebookExecutionLogger } from '../datascience/types';
 import { EventName } from './constants';
 
 /*
@@ -51,13 +51,12 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
     private hashFn = require('hash.js').sha256;
 
     constructor(
-        @inject(IDocumentManager) private documentManager: IDocumentManager,
-        @inject(INotebookEditorProvider) private notebookEditorProvider: INotebookEditorProvider
+        @inject(IDocumentManager) private documentManager: IDocumentManager // @inject(INotebookEditorProvider) private notebookEditorProvider: INotebookEditorProvider
     ) {
         this.documentManager.onDidOpenTextDocument((t) => this.onOpenedOrSavedDocument(t));
         this.documentManager.onDidSaveTextDocument((t) => this.onOpenedOrSavedDocument(t));
-        this.notebookEditorProvider.onDidOpenNotebookEditor((t) => this.onOpenedOrClosedNotebook(t));
-        this.notebookEditorProvider.onDidCloseNotebookEditor((t) => this.onOpenedOrClosedNotebook(t));
+        // this.notebookEditorProvider.onDidOpenNotebookEditor((t) => this.onOpenedOrClosedNotebook(t));
+        // this.notebookEditorProvider.onDidCloseNotebookEditor((t) => this.onOpenedOrClosedNotebook(t));
     }
 
     public dispose() {
@@ -80,7 +79,7 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
     public async activate(): Promise<void> {
         // Act like all of our open documents just opened; our timeout will make sure this is delayed.
         this.documentManager.textDocuments.forEach((d) => this.onOpenedOrSavedDocument(d));
-        this.notebookEditorProvider.editors.forEach((e) => this.onOpenedOrClosedNotebook(e));
+        // this.notebookEditorProvider.editors.forEach((e) => this.onOpenedOrClosedNotebook(e));
     }
 
     private getDocumentLines(document: TextDocument): (string | undefined)[] {
@@ -96,20 +95,20 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
             .filter((f: string | undefined) => f);
     }
 
-    private getNotebookLines(e: INotebookEditor): (string | undefined)[] {
-        let result: (string | undefined)[] = [];
-        if (e.model) {
-            e.model.cells
-                .filter((c) => c.data.cell_type === 'code')
-                .forEach((c) => {
-                    const cellArray = this.getCellLines(c);
-                    if (result.length < MAX_DOCUMENT_LINES) {
-                        result = [...result, ...cellArray];
-                    }
-                });
-        }
-        return result;
-    }
+    // private getNotebookLines(e: INotebookEditor): (string | undefined)[] {
+    //     let result: (string | undefined)[] = [];
+    //     if (e.model) {
+    //         e.model.cells
+    //             .filter((c) => c.data.cell_type === 'code')
+    //             .forEach((c) => {
+    //                 const cellArray = this.getCellLines(c);
+    //                 if (result.length < MAX_DOCUMENT_LINES) {
+    //                     result = [...result, ...cellArray];
+    //                 }
+    //             });
+    //     }
+    //     return result;
+    // }
 
     private getCellLines(cell: ICell): (string | undefined)[] {
         // Split into multiple lines removing line feeds on the end.
@@ -123,11 +122,11 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
         }
     }
 
-    private onOpenedOrClosedNotebook(e: INotebookEditor) {
-        if (e.file) {
-            this.scheduleCheck(e.file.fsPath, this.checkNotebook.bind(this, e));
-        }
-    }
+    // private onOpenedOrClosedNotebook(e: INotebookEditor) {
+    //     if (e.file) {
+    //         this.scheduleCheck(e.file.fsPath, this.checkNotebook.bind(this, e));
+    //     }
+    // }
 
     private scheduleDocument(document: TextDocument) {
         this.scheduleCheck(document.fileName, this.checkDocument.bind(this, document));
@@ -163,12 +162,12 @@ export class ImportTracker implements IExtensionSingleActivationService, INotebo
         this.lookForImports(lines);
     }
 
-    @captureTelemetry(EventName.HASHED_PACKAGE_PERF)
-    private checkNotebook(e: INotebookEditor) {
-        this.pendingChecks.delete(e.file.fsPath);
-        const lines = this.getNotebookLines(e);
-        this.lookForImports(lines);
-    }
+    // @captureTelemetry(EventName.HASHED_PACKAGE_PERF)
+    // private checkNotebook(e: INotebookEditor) {
+    //     this.pendingChecks.delete(e.file.fsPath);
+    //     const lines = this.getNotebookLines(e);
+    //     this.lookForImports(lines);
+    // }
 
     @captureTelemetry(EventName.HASHED_PACKAGE_PERF)
     private checkDocument(document: TextDocument) {

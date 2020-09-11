@@ -5,6 +5,7 @@ import {
     ExecutionResult,
     IPythonExecutionService,
     ObservableExecutionResult,
+    PythonExecutionInfo,
     SpawnOptions
 } from '../../client/common/process/types';
 import { buildPythonExecInfo } from '../../client/pythonEnvironments/exec';
@@ -17,6 +18,18 @@ export class MockPythonService implements IPythonExecutionService {
 
     constructor(interpreter: PythonEnvironment) {
         this.interpreter = interpreter;
+    }
+    public getExecutionDetails(_options: {
+        args: string[];
+        options: SpawnOptions;
+        moduleName?: string | undefined;
+    }): {
+        execDetails: PythonExecutionInfo;
+        execObservableDetails: PythonExecutionInfo;
+        execModuleDetails?: PythonExecutionInfo | undefined;
+        execModuleObservableDetails?: PythonExecutionInfo | undefined;
+    } {
+        throw new Error('Method not implemented.');
     }
 
     public getInterpreterInformation(): Promise<InterpreterInformation> {

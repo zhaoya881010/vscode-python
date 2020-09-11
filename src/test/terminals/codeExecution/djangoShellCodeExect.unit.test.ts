@@ -222,7 +222,8 @@ suite('Terminal - Django Shell Code Execution', () => {
         const expectedTerminalArgs = [...terminalArgs, 'manage.py', 'shell'];
         pythonExecutionFactory
             .setup((p) => p.createCondaExecutionService(TypeMoq.It.isAny(), TypeMoq.It.isAny(), TypeMoq.It.isAny()))
-            .returns(() => Promise.resolve(condaExecutionService));
+            // tslint:disable-next-line: no-any
+            .returns(() => Promise.resolve(condaExecutionService as any));
 
         const replCommandArgs = await (executor as DjangoShellCodeExecutionProvider).getExecutableInfo(resource);
 
