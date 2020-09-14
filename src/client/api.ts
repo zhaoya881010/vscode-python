@@ -4,13 +4,12 @@
 'use strict';
 
 import { Event, Uri } from 'vscode';
-import { NotebookCell } from 'vscode-proposed';
 import { isTestExecution } from './common/constants';
 import { traceError } from './common/logger';
 import { IConfigurationService, Resource } from './common/types';
 import { JupyterExtensionIntegration } from './datascience/api/jupyterIntegration';
 import { IDataViewerDataProvider, IDataViewerFactory } from './datascience/data-viewing/types';
-import { IJupyterUriProvider, IJupyterUriProviderRegistration, INotebookExtensibility } from './datascience/types';
+import { IJupyterUriProvider, IJupyterUriProviderRegistration } from './datascience/types';
 import { getDebugpyLauncherArgs, getDebugpyPackagePath } from './debugger/extension/adapter/remoteLaunchers';
 import { IInterpreterService } from './interpreter/contracts';
 import { IServiceContainer, IServiceManager } from './ioc/types';
@@ -82,8 +81,8 @@ export interface IExtensionApi {
         };
     };
     datascience: {
-        readonly onKernelPostExecute: Event<NotebookCell>;
-        readonly onKernelRestart: Event<void>;
+        // readonly onKernelPostExecute: Event<NotebookCell>;
+        // readonly onKernelRestart: Event<void>;
         /**
          * Launches Data Viewer component.
          * @param {IDataViewerDataProvider} dataProvider Instance that will be used by the Data Viewer component to fetch data.
@@ -106,7 +105,7 @@ export function buildApi(
 ): IExtensionApi {
     const configurationService = serviceContainer.get<IConfigurationService>(IConfigurationService);
     const interpreterService = serviceContainer.get<IInterpreterService>(IInterpreterService);
-    const notebookExtensibility = serviceContainer.get<INotebookExtensibility>(INotebookExtensibility);
+    // const notebookExtensibility = serviceContainer.get<INotebookExtensibility>(INotebookExtensibility);
     serviceManager.addSingleton<JupyterExtensionIntegration>(JupyterExtensionIntegration, JupyterExtensionIntegration);
     const jupyterIntegration = serviceContainer.get<JupyterExtensionIntegration>(JupyterExtensionIntegration);
     const api: IExtensionApi = {
@@ -152,9 +151,9 @@ export function buildApi(
                     IJupyterUriProviderRegistration
                 );
                 container.registerProvider(picker);
-            },
-            onKernelPostExecute: notebookExtensibility.onKernelPostExecute,
-            onKernelRestart: notebookExtensibility.onKernelRestart
+            }
+            // onKernelPostExecute: notebookExtensibility.onKernelPostExecute,
+            // onKernelRestart: notebookExtensibility.onKernelRestart
         }
     };
 

@@ -535,14 +535,14 @@ export class PythonSettings implements IPythonSettings {
                   optOutFrom: []
               };
 
-        const dataScienceSettings = systemVariables.resolveAny(
-            pythonSettings.get<IDataScienceSettings>('dataScience')
-        )!;
-        if (this.datascience) {
-            Object.assign<IDataScienceSettings, IDataScienceSettings>(this.datascience, dataScienceSettings);
-        } else {
-            this.datascience = dataScienceSettings;
-        }
+        // const dataScienceSettings = systemVariables.resolveAny(
+        //     pythonSettings.get<IDataScienceSettings>('dataScience')
+        // )!;
+        // if (this.datascience) {
+        //     Object.assign<IDataScienceSettings, IDataScienceSettings>(this.datascience, dataScienceSettings);
+        // } else {
+        //     this.datascience = dataScienceSettings;
+        // }
 
         const showStartPage = pythonSettings.get<boolean>('showStartPage');
         if (showStartPage !== undefined) {

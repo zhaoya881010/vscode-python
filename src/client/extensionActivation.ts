@@ -31,9 +31,6 @@ import {
 import { OutputChannelNames } from './common/utils/localize';
 import { noop } from './common/utils/misc';
 import { registerTypes as variableRegisterTypes } from './common/variables/serviceRegistry';
-import { JUPYTER_OUTPUT_CHANNEL } from './datascience/constants';
-import { registerTypes as dataScienceRegisterTypes } from './datascience/serviceRegistry';
-import { IDataScience } from './datascience/types';
 import { DebuggerTypeName } from './debugger/constants';
 import { DebugSessionEventDispatcher } from './debugger/extension/hooks/eventHandlerDispatcher';
 import { IDebugSessionEventHandlers } from './debugger/extension/hooks/types';
@@ -134,7 +131,7 @@ async function activateLegacy(
 
     // Register datascience types after experiments have loaded.
     // To ensure we can register types based on experiments.
-    dataScienceRegisterTypes(serviceManager);
+    // dataScienceRegisterTypes(serviceManager);
 
     const languageServerType = configuration.getSettings().languageServer;
 

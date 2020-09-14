@@ -27,7 +27,7 @@ import { DataViewerFactory } from './data-viewing/dataViewerFactory';
 import { JupyterVariableDataProvider } from './data-viewing/jupyterVariableDataProvider';
 import { JupyterVariableDataProviderFactory } from './data-viewing/jupyterVariableDataProviderFactory';
 import { IDataViewer, IDataViewerFactory } from './data-viewing/types';
-import { DataScience } from './datascience';
+// import { DataScience } from './datascience';
 import { DataScienceFileSystem } from './dataScienceFileSystem';
 import { DataScienceSurveyBannerLogger } from './dataScienceSurveyBanner';
 import { DebugLocationTrackerFactory } from './debugLocationTrackerFactory';
@@ -138,7 +138,7 @@ import {
     ICodeCssGenerator,
     ICodeLensFactory,
     ICodeWatcher,
-    IDataScience,
+    // IDataScience,
     IDataScienceCodeLensProvider,
     IDataScienceCommandListener,
     IDataScienceErrorHandler,
@@ -243,7 +243,7 @@ export function registerTypes(serviceManager: IServiceManager) {
     serviceManager.addSingleton<DataViewerDependencyService>(DataViewerDependencyService, DataViewerDependencyService);
     serviceManager.addSingleton<ICodeCssGenerator>(ICodeCssGenerator, CodeCssGenerator);
     serviceManager.addSingleton<ICodeLensFactory>(ICodeLensFactory, CodeLensFactory, undefined, [IInteractiveWindowListener]);
-    serviceManager.addSingleton<IDataScience>(IDataScience, DataScience);
+    // serviceManager.addSingleton<IDataScience>(IDataScience, DataScience);
     serviceManager.addSingleton<IDataScienceCodeLensProvider>(IDataScienceCodeLensProvider, DataScienceCodeLensProvider);
     serviceManager.addSingleton<IDataScienceCommandListener>(IDataScienceCommandListener, InteractiveWindowCommandListener);
     serviceManager.addSingleton<IDataScienceCommandListener>(IDataScienceCommandListener, NativeEditorCommandListener);
