@@ -10,6 +10,7 @@ import { IConfigurationService, Resource } from './common/types';
 import { getDebugpyLauncherArgs, getDebugpyPackagePath } from './debugger/extension/adapter/remoteLaunchers';
 import { IInterpreterService } from './interpreter/contracts';
 import { IServiceContainer, IServiceManager } from './ioc/types';
+import { JupyterExtensionIntegration } from './jupyter/jupyterIntegration';
 
 /*
  * Do not introduce any breaking changes to this API.
@@ -23,6 +24,9 @@ export interface IExtensionApi {
      * @memberof IExtensionApi
      */
     ready: Promise<void>;
+    jupyter: {
+        registerHooks(): void;
+    };
     debug: {
         /**
          * Generate an array of strings for commands to pass to the Python executable to launch the debugger for remote debugging.
@@ -84,12 +88,17 @@ export function buildApi(
 ): IExtensionApi {
     const configurationService = serviceContainer.get<IConfigurationService>(IConfigurationService);
     const interpreterService = serviceContainer.get<IInterpreterService>(IInterpreterService);
+    serviceManager.addSingleton<JupyterExtensionIntegration>(JupyterExtensionIntegration, JupyterExtensionIntegration);
+    const jupyterIntegration = serviceContainer.get<JupyterExtensionIntegration>(JupyterExtensionIntegration);
     const api: IExtensionApi = {
         // 'ready' will propagate the exception, but we must log it here first.
         ready: ready.catch((ex) => {
             traceError('Failure during activation.', ex);
             return Promise.reject(ex);
         }),
+        jupyter: {
+            registerHooks: () => jupyterIntegration.integrateWithJupyterExtension()
+        },
         debug: {
             async getRemoteLauncherCommand(
                 host: string,
