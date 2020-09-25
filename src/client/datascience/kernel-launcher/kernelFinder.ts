@@ -7,7 +7,7 @@ import { inject, injectable, named } from 'inversify';
 import * as path from 'path';
 import { CancellationToken } from 'vscode';
 import { IWorkspaceService } from '../../common/application/types';
-import { traceError, traceInfo } from '../../common/logger';
+import { traceDecorators, traceError, traceInfo, traceVerbose } from '../../common/logger';
 import { IPlatformService } from '../../common/platform/types';
 import { IPythonExecutionFactory } from '../../common/process/types';
 import { IExtensionContext, IPathUtils, Resource } from '../../common/types';
@@ -65,6 +65,7 @@ export class KernelFinder implements IKernelFinder {
         kernelSpecMetadata?: nbformat.IKernelspecMetadata
     ): Promise<IJupyterKernelSpec | undefined> {
         await this.readCache();
+        traceInfo(`Search kernel ${JSON.stringify(kernelSpecMetadata)}`);
         let foundKernel: IJupyterKernelSpec | undefined;
 
         const kernelName = kernelSpecMetadata?.name;
@@ -102,7 +103,7 @@ export class KernelFinder implements IKernelFinder {
         }
 
         this.writeCache().ignoreErrors();
-
+        traceInfo(`Search kernel Result ${JSON.stringify(foundKernel)}`);
         return foundKernel;
     }
 
@@ -127,6 +128,7 @@ export class KernelFinder implements IKernelFinder {
         return this.workspaceToKernels.get(workspaceFolderId)!;
     }
 
+    @traceDecorators.verbose('Get kernel specs')
     private async findResourceKernelSpecs(resource: Resource): Promise<IJupyterKernelSpec[]> {
         const results: IJupyterKernelSpec[] = [];
 
@@ -312,6 +314,7 @@ export class KernelFinder implements IKernelFinder {
         return flatten(fullPathResults);
     }
 
+    @traceDecorators.verbose('Get kernel specs in interpreter paths')
     private async getKernelSpecFromActiveInterpreter(
         kernelName: string,
         resource: Resource
@@ -320,6 +323,7 @@ export class KernelFinder implements IKernelFinder {
         return this.getKernelSpecFromDisk(activePath, kernelName);
     }
 
+    @traceDecorators.verbose('Search kernel specs in interpreter paths')
     private async findInterpreterPath(
         interpreterPaths: string[],
         kernelName: string
@@ -338,6 +342,7 @@ export class KernelFinder implements IKernelFinder {
         return this.getKernelSpecFromDisk(paths, kernelName);
     }
 
+    @traceDecorators.verbose('Get kernel specs from disc')
     private async getKernelSpecFromDisk(paths: string[], kernelName: string): Promise<IJupyterKernelSpec | undefined> {
         const searchResults = await this.kernelGlobSearch(paths);
         searchResults.forEach((specPath) => {
@@ -355,8 +360,8 @@ export class KernelFinder implements IKernelFinder {
             this.cache = JSON.parse(
                 await this.fs.readLocalFile(path.join(this.context.globalStoragePath, cacheFile))
             ) as string[];
-        } catch {
-            traceInfo('No kernelSpec cache found.');
+        } catch (ex) {
+            traceInfo('No kernelSpec cache found.', ex);
         }
     }
 
@@ -378,7 +383,9 @@ export class KernelFinder implements IKernelFinder {
         }
     }
 
+    @traceDecorators.verbose('Searching cache')
     private async searchCache(kernelName: string): Promise<IJupyterKernelSpec | undefined> {
+        traceVerbose(`Searching ${kernelName} in cache ${JSON.stringify(this.cache)}`)
         const kernelJsonFile = this.cache?.find((kernelPath) => {
             try {
                 return path.basename(path.dirname(kernelPath)) === kernelName;

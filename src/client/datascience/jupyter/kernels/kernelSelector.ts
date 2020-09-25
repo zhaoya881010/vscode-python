@@ -8,7 +8,7 @@ import cloneDeep = require('lodash/cloneDeep');
 import { CancellationToken } from 'vscode-jsonrpc';
 import { IApplicationShell } from '../../../common/application/types';
 import '../../../common/extensions';
-import { traceError, traceInfo, traceVerbose } from '../../../common/logger';
+import { traceDecorators, traceError, traceInfo, traceVerbose } from '../../../common/logger';
 import { IConfigurationService, IDisposableRegistry, Resource } from '../../../common/types';
 import * as localize from '../../../common/utils/localize';
 import { noop } from '../../../common/utils/misc';
@@ -488,6 +488,7 @@ export class KernelSelector implements IKernelSelectionUsage {
     }
 
     // Get our kernelspec and interpreter for a local raw connection
+    @traceDecorators.verbose('Get kernel specs for local raw connection')
     private async getKernelForLocalRawConnection(
         resource: Resource,
         notebookMetadata?: nbformat.INotebookMetadata,
@@ -503,8 +504,10 @@ export class KernelSelector implements IKernelSelectionUsage {
         );
         const activeInterpreter = await this.interpreterService.getActiveInterpreter(resource);
         if (!kernelSpec && !activeInterpreter) {
+            traceVerbose('Kernel Spec not found & no active interpreter');
             return;
         } else if (!kernelSpec && activeInterpreter) {
+            traceVerbose('Kernel Spec not found & found an active interpreter');
             await this.installDependenciesIntoInterpreter(activeInterpreter, ignoreDependencyCheck, cancelToken);
 
             // Return current interpreter.
