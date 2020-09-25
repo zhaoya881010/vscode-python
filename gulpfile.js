@@ -99,7 +99,7 @@ gulp.task('hygiene-branch', (done) => run({ mode: 'diffMain' }, done));
 
 gulp.task('output:clean', () => del(['coverage']));
 
-gulp.task('clean:cleanExceptTests', () => del(['clean:vsix', 'out/client', 'out/startpage-ui', 'out/server']));
+gulp.task('clean:cleanExceptTests', () => del(['clean:vsix', 'out/client', 'out/startPage-ui', 'out/server']));
 gulp.task('clean:vsix', () => del(['*.vsix']));
 gulp.task('clean:out', () => del(['out']));
 
@@ -116,7 +116,7 @@ gulp.task('checkNativeDependencies', (done) => {
 const webpackEnv = { NODE_OPTIONS: '--max_old_space_size=9096' };
 
 gulp.task('compile-viewers', async () => {
-    await buildWebPackForDevOrProduction('./build/webpack/webpack.startpage-ui-viewers.config.js');
+    await buildWebPackForDevOrProduction('./build/webpack/webpack.startPage-ui-viewers.config.js');
 });
 
 gulp.task('compile-webviews', gulp.series('compile-viewers'));
@@ -131,7 +131,7 @@ async function buildWebPackForDevOrProduction(configFile, configNameForProductio
 gulp.task('webpack', async () => {
     // Build node_modules.
     await buildWebPackForDevOrProduction('./build/webpack/webpack.extension.dependencies.config.js', 'production');
-    await buildWebPackForDevOrProduction('./build/webpack/webpack.startpage-ui-viewers.config.js', 'production');
+    await buildWebPackForDevOrProduction('./build/webpack/webpack.startPage-ui-viewers.config.js', 'production');
     await buildWebPackForDevOrProduction('./build/webpack/webpack.extension.config.js', 'extension');
 });
 
