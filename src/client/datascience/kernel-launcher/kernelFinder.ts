@@ -385,7 +385,7 @@ export class KernelFinder implements IKernelFinder {
 
     @traceDecorators.verbose('Searching cache')
     private async searchCache(kernelName: string): Promise<IJupyterKernelSpec | undefined> {
-        traceVerbose(`Searching ${kernelName} in cache ${JSON.stringify(this.cache)}`)
+        traceVerbose(`Searching ${kernelName} in cache ${JSON.stringify(this.cache)}`);
         const kernelJsonFile = this.cache?.find((kernelPath) => {
             try {
                 return path.basename(path.dirname(kernelPath)) === kernelName;
