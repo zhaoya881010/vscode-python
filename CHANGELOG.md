@@ -1,11 +1,13 @@
 # Changelog
 
-## 2020.9.2 (1 October 2020)
+## 2020.9.2 (2 October 2020)
 
 ### Fixes
 
 1. Support nbconvert version 6+ for exporting notebooks to python code.
    ([#14169](https://github.com/Microsoft/vscode-python/issues/14169))
+1. Do not escape output in the actual ipynb file.
+   ([#14182](https://github.com/Microsoft/vscode-python/issues/14182))
 
 ### Thanks
 
@@ -60,7 +62,6 @@ make this extension useful:
 And finally thanks to the [Python](https://www.python.org/) development team and
 community for creating a fantastic programming language and community to be a
 part of!
-
 
 ## 2020.9.1 (29 September 2020)
 
