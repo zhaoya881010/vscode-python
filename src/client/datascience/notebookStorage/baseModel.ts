@@ -23,6 +23,19 @@ type KernelIdListEntry = {
     kernelId: string | undefined;
 };
 
+export function getInterpreterInfoStoredInMetadata(
+    metadata?: nbformat.INotebookMetadata
+): { displayName: string; hash: string } | undefined {
+    if (!metadata || !metadata.kernelspec || !metadata.kernelspec.name) {
+        return;
+    }
+    // See `updateNotebookMetadata` to determine how & where exactly interpreter hash is stored.
+    // tslint:disable-next-line: no-any
+    const kernelSpecMetadata: undefined | any = metadata.kernelspec.metadata as any;
+    const interpreterHash = kernelSpecMetadata?.interpreter?.hash;
+    return interpreterHash ? { displayName: metadata.kernelspec.name, hash: interpreterHash } : undefined;
+}
+
 // tslint:disable-next-line: cyclomatic-complexity
 export function updateNotebookMetadata(
     metadata?: nbformat.INotebookMetadata,
