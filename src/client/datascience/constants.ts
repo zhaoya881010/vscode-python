@@ -109,9 +109,9 @@ export namespace Commands {
     export const TrustNotebook = 'python.datascience.notebookeditor.trust';
     export const EnableLoadingWidgetsFrom3rdPartySource =
         'python.datascience.enableLoadingWidgetScriptsFromThirdPartySource';
-    export const NewNotebookRemoveAllCells = 'python.datascience.newNotebook.removeallcells';
-    export const NewNotebookExpandAllCells = 'python.datascience.newNotebook.expandallcells';
-    export const NewNotebookCollapseAllCells = 'python.datascience.newNotebook.collapseallcells';
+    export const NotebookEditorExpandAllCells = 'python.datascience.notebookeditor.expandallcells';
+    export const NotebookEditorCollapseAllCells = 'python.datascience.notebookeditor.collapseallcells';
+    export const ShowDataViewer = 'python.datascience.showDataViewer';
 }
 
 export namespace CodeLensCommands {
@@ -410,7 +410,10 @@ export enum Telemetry {
     TrustAllNotebooks = 'DATASCIENCE.TRUST_ALL_NOTEBOOKS',
     TrustNotebook = 'DATASCIENCE.TRUST_NOTEBOOK',
     DoNotTrustNotebook = 'DATASCIENCE.DO_NOT_TRUST_NOTEBOOK',
-    NotebookTrustPromptShown = 'DATASCIENCE.NOTEBOOK_TRUST_PROMPT_SHOWN'
+    NotebookTrustPromptShown = 'DATASCIENCE.NOTEBOOK_TRUST_PROMPT_SHOWN',
+    OpenDataViewerFromVariableWindowRequest = 'DATASCIENCE.OPEN_DATAVIEWER_FROM_VARIABLE_WINDOW_REQUEST',
+    OpenDataViewerFromVariableWindowError = 'DATASCIENCE.OPEN_DATAVIEWER_FROM_VARIABLE_WINDOW_ERROR',
+    OpenDataViewerFromVariableWindowSuccess = 'DATASCIENCE.OPEN_DATAVIEWER_FROM_VARIABLE_WINDOW_SUCCESS'
 }
 
 export enum NativeKeyboardCommandTelemetry {
@@ -570,11 +573,11 @@ export namespace LiveShare {
 
 export namespace LiveShareCommands {
     export const isNotebookSupported = 'isNotebookSupported';
-    export const isImportSupported = 'isImportSupported';
     export const connectToNotebookServer = 'connectToNotebookServer';
     export const getUsableJupyterPython = 'getUsableJupyterPython';
     export const executeObservable = 'executeObservable';
     export const getSysInfo = 'getSysInfo';
+    export const requestKernelInfo = 'requestKernelInfo';
     export const serverResponse = 'serverResponse';
     export const catchupRequest = 'catchupRequest';
     export const syncRequest = 'synchRequest';
