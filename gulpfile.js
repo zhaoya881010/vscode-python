@@ -33,7 +33,7 @@ const rmrf = require('rimraf');
 
 const isCI = process.env.TRAVIS === 'true' || process.env.TF_BUILD !== undefined;
 
-const noop = function () {};
+const noop = function () { };
 /**
  * Hygiene works by creating cascading subsets of all our files and
  * passing them through a sequence of checks. Here are the current subsets,
@@ -134,6 +134,19 @@ gulp.task('webpack', async () => {
     await buildWebPackForDevOrProduction('./build/webpack/webpack.startPage-ui-viewers.config.js', 'production');
     await buildWebPackForDevOrProduction('./build/webpack/webpack.extension.config.js', 'extension');
 });
+
+gulp.task('addExtensionDependencies', async () => {
+    await addExtensionDependencies();
+});
+
+async function addExtensionDependencies() {
+    // Update the package.json to add extension dependencies at build time so that 
+    // extension dependencies need not be installed during development
+    const packageJsonContents = await fsExtra.readFile('package.json', 'utf-8');
+    const packageJson = JSON.parse(packageJsonContents);
+    packageJson.extensionDependencies = ["ms-toolsai.jupyter"].concat(packageJson.extensionDependencies ?? []);
+    await fsExtra.writeFile('package.json', JSON.stringify(packageJson, null, 4), 'utf-8');
+}
 
 gulp.task('updateBuildNumber', async () => {
     await updateBuildNumber(argv);
@@ -529,9 +542,8 @@ const hygiene = (options, done) => {
                         : position.character;
 
                     // Output in format similar to tslint for the linter to pickup.
-                    const message = `ERROR: (${failure.ruleName}) ${relative(__dirname, name)}[${line + 1}, ${
-                        character + 1
-                    }]: ${failure.failure}`;
+                    const message = `ERROR: (${failure.ruleName}) ${relative(__dirname, name)}[${line + 1}, ${character + 1
+                        }]: ${failure.failure}`;
                     if (reportedLinterFailures.indexOf(message) === -1) {
                         console.error(message);
                         reportedLinterFailures.push(message);
@@ -552,7 +564,7 @@ const hygiene = (options, done) => {
         }
         // Yes this is a hack, but tslinter doesn't provide an option to prevent this.
         const oldWarn = console.warn;
-        console.warn = () => {};
+        console.warn = () => { };
         linter.failures = [];
         linter.fixes = [];
         linter.lint(file.relative, contents, configuration.results);
@@ -644,9 +656,8 @@ const hygiene = (options, done) => {
         .pipe(
             es.through(null, function () {
                 if (errorCount > 0) {
-                    const errorMessage = `Hygiene failed with errors 👎 . Check 'gulpfile.js' (completed in ${
-                        new Date().getTime() - started
-                    }ms).`;
+                    const errorMessage = `Hygiene failed with errors 👎 . Check 'gulpfile.js' (completed in ${new Date().getTime() - started
+                        }ms).`;
                     console.error(colors.red(errorMessage));
                     exitHandler(options);
                 } else {
@@ -838,5 +849,5 @@ exports.hygiene = hygiene;
 
 // this allows us to run hygiene via CLI (e.g. `node gulfile.js`).
 if (require.main === module) {
-    run({ exitOnError: true, mode: 'staged' }, () => {});
+    run({ exitOnError: true, mode: 'staged' }, () => { });
 }
