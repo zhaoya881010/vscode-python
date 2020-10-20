@@ -410,10 +410,6 @@ jobs:
           python -m pip install numpy
           python -m pip install --upgrade -r ./build/ipython-test-requirements.txt
 
-      - name: pip install jupyter
-        run: |
-          python -m pip install --upgrade jupyter
-
       # Save time by reusing bits from the VSIX.
       - name: Download VSIX
         uses: actions/download-artifact@v2

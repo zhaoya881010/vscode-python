@@ -198,12 +198,6 @@ steps:
     displayName: 'pip install ipython requirements'
     condition: and(succeeded(), eq(variables['NeedsIPythonReqs'], 'true'))
 
-  # Install jupyter for smoke tests.
-  - bash: |
-      python -m pip install --upgrade jupyter
-    displayName: 'pip install jupyter'
-    condition: and(succeeded(), eq(variables['NeedsIPythonReqs'], 'true'), contains(variables['TestsToRun'], 'testSmoke'))
-
   - bash: |
       python -m pip --disable-pip-version-check install -r build/debugger-install-requirements.txt
       python ./pythonFiles/install_debugpy.py
