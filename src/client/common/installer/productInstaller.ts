@@ -403,7 +403,7 @@ export class DataScienceInstaller extends BaseInstaller {
     ): Promise<InstallerResponse> {
         const productName = ProductNames.get(product)!;
         const item = await this.appShell.showErrorMessage(
-            'Data Science library {0} is not installed. Install?'.format(productName),
+            Installer.dataScienceInstallPrompt().format(productName),
             'Yes',
             'No'
         );
