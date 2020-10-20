@@ -108,6 +108,8 @@ mockedVSCode.FileSystemError = vscodeMocks.vscMockExtHostedTypes.FileSystemError
 (mockedVSCode as any).CellKind = vscodeMocks.vscMockExtHostedTypes.CellKind;
 (mockedVSCode as any).CellOutputKind = vscodeMocks.vscMockExtHostedTypes.CellOutputKind;
 (mockedVSCode as any).NotebookCellRunState = vscodeMocks.vscMockExtHostedTypes.NotebookCellRunState;
+(mockedVSCode as any).DebugProtocolVariable = vscodeMocks.vscMockExtHostedTypes.DebugProtocolVariable;
+(mockedVSCode as any).DebugProtocolVariableContainer = vscodeMocks.vscMockExtHostedTypes.DebugProtocolVariableContainer;
 
 // This API is used in src/client/telemetry/telemetry.ts
 const extensions = TypeMoq.Mock.ofType<typeof vscode.extensions>();

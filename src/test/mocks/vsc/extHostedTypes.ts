@@ -16,6 +16,10 @@ import { vscUri } from './uri';
 import { generateUuid } from './uuid';
 
 export namespace vscMockExtHostedTypes {
+    export class DebugProtocolVariable { }
+
+    export class DebugProtocolVariableContainer { }
+
     export enum CellKind {
         Markdown = 1,
         Code = 2
@@ -1046,7 +1050,7 @@ export namespace vscMockExtHostedTypes {
         public static readonly Source = CodeActionKind.Empty.append('source');
         public static readonly SourceOrganizeImports = CodeActionKind.Source.append('organizeImports');
 
-        constructor(public readonly value: string) {}
+        constructor(public readonly value: string) { }
 
         public append(parts: string): CodeActionKind {
             return new CodeActionKind(this.value ? this.value + CodeActionKind.sep + parts : parts);

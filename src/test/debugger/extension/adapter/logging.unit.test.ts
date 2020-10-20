@@ -48,7 +48,8 @@ suite('Debugging - Session Logging', () => {
             name: 'python',
             type: 'python',
             workspaceFolder,
-            customRequest: () => Promise.resolve()
+            customRequest: () => Promise.resolve(),
+            getDebugProtocolBreakpoint: () => Promise.resolve({})
         };
     }
 

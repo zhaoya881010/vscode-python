@@ -82,6 +82,10 @@ export interface CellDisplayOutput {
     readonly metadata?: NotebookCellOutputMetadata;
 }
 
+export interface DebugProtocolVariable { }
+
+export interface DebugProtocolVariableContainer { }
+
 export type CellOutput = CellStreamOutput | CellErrorOutput | CellDisplayOutput;
 
 export enum NotebookCellRunState {
