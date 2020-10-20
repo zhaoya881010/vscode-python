@@ -16,9 +16,9 @@ import { vscUri } from './uri';
 import { generateUuid } from './uuid';
 
 export namespace vscMockExtHostedTypes {
-    export class DebugProtocolVariable { }
+    export class DebugProtocolVariable {}
 
-    export class DebugProtocolVariableContainer { }
+    export class DebugProtocolVariableContainer {}
 
     export enum CellKind {
         Markdown = 1,
