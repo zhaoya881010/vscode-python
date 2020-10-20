@@ -14,13 +14,10 @@ import {
     IWebviewPanelProvider,
     IWorkspaceService
 } from '../application/types';
-// import { Telemetry } from '../constants';
 import { traceInfo } from '../logger';
 import { createDeferred } from '../utils/async';
 import { noop } from '../utils/misc';
 import { StopWatch } from '../utils/stopWatch';
-// import { SharedMessages } from '../messages';
-// import { sendTelemetryEvent } from '../telemetry';
 import { ICodeCssGenerator, IThemeFinder, WebViewViewChangeEventArgs } from './types';
 
 import { sendTelemetryEvent } from '../../telemetry';
