@@ -3,14 +3,15 @@
 # Licensed under the MIT License. See https://go.microsoft.com/fwlink/?linkid=2090316 for license information.
 #-------------------------------------------------------------------------------------------------------------
 
-FROM node:8
+ARG VARIANT=12
+FROM mcr.microsoft.com/vscode/devcontainers/typescript-node:${VARIANT}
 
 # Avoid warnings by switching to noninteractive
 ENV DEBIAN_FRONTEND=noninteractive
 
 # The node image comes with a base non-root 'node' user which this Dockerfile
 # gives sudo access. However, for Linux, this user's GID/UID must match your local
-# user UID/GID to avoid permission issues with bind mounts. Update USER_UID / USER_GID 
+# user UID/GID to avoid permission issues with bind mounts. Update USER_UID / USER_GID
 # if yours is not 1000. See https://aka.ms/vscode-remote/containers/non-root-user.
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
@@ -20,9 +21,9 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends apt-utils dialog 2>&1 \
     #
     # Verify git and needed tools are installed
-    && apt-get -y install git iproute2 procps \    
+    && apt-get -y install git iproute2 procps \
     #
-    # Remove outdated yarn from /opt and install via package 
+    # Remove outdated yarn from /opt and install via package
     # so it can be easily updated via apt-get upgrade yarn
     && rm -rf /opt/yarn-* \
     && rm -f /usr/local/bin/yarn \
