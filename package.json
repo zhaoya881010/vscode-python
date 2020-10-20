@@ -83,10 +83,8 @@
         "onCommand:python.resetInterpreterSecurityStorage",
         "onCommand:python.startPage.open",
         "onCommand:python.enableSourceMapSupport",
-        "onNotebook:jupyter-notebook",
         "workspaceContains:mspythonconfig.json",
-        "workspaceContains:pyproject.toml",
-        "onCustomEditor:ms-python.python.notebook.ipynb"
+        "workspaceContains:pyproject.toml"
     ],
     "main": "./out/client/extension",
     "contributes": {
