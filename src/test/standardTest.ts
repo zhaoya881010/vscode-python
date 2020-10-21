@@ -1,7 +1,8 @@
 // tslint:disable:no-console
 
+import { spawnSync } from 'child_process';
 import * as path from 'path';
-import { runTests } from 'vscode-test';
+import { downloadAndUnzipVSCode, resolveCliPathFromVSCodeExecutablePath, runTests } from 'vscode-test';
 import { EXTENSION_ROOT_DIR_FOR_TESTS } from './constants';
 
 // If running smoke tests, we don't have access to this.
@@ -9,6 +10,26 @@ if (process.env.TEST_FILES_SUFFIX !== 'smoke.test') {
     // tslint:disable-next-line: no-var-requires no-require-imports
     const logger = require('./testLogger');
     logger.initializeLogger();
+}
+function requiresJupyterExtensionToBeInstalled() {
+    return process.env.INSTALL_JUPYTER_EXTENSION === 'true';
+}
+
+/**
+ * Smoke tests & tests running in VSCode require Jupyter extension to be installed.
+ */
+async function installJupyterExtension(vscodeExecutablePath: string) {
+    const jupyterVSIX = process.env.VSIX_NAME_JUPYTER;
+    if (!requiresJupyterExtensionToBeInstalled() || !jupyterVSIX) {
+        console.info('Jupyter Extension not required');
+        return;
+    }
+    console.info('Installing Jupyter Extension');
+    const cliPath = resolveCliPathFromVSCodeExecutablePath(vscodeExecutablePath);
+    spawnSync(cliPath, ['--install-extension', jupyterVSIX], {
+        encoding: 'utf-8',
+        stdio: 'inherit'
+    });
 }
 
 process.env.IS_CI_SERVER_TEST_DEBUGGER = '';
@@ -22,13 +43,17 @@ const extensionDevelopmentPath = process.env.CODE_EXTENSIONS_PATH
 
 const channel = process.env.VSC_PYTHON_CI_TEST_VSC_CHANNEL || 'stable';
 
-function start() {
+async function start() {
     console.log('*'.repeat(100));
     console.log('Start Standard tests');
+    const vscodeExecutablePath = await downloadAndUnzipVSCode(channel);
+    const baseLaunchArgs = requiresJupyterExtensionToBeInstalled() ? [] : ['--disable-extensions'];
+    await installJupyterExtension(vscodeExecutablePath);
     runTests({
         extensionDevelopmentPath: extensionDevelopmentPath,
         extensionTestsPath: path.join(EXTENSION_ROOT_DIR_FOR_TESTS, 'out', 'test', 'index'),
-        launchArgs: ['--disable-extensions', workspacePath]
+        launchArgs: baseLaunchArgs
+            .concat([workspacePath])
             .concat(channel === 'insiders' ? ['--enable-proposed-api'] : [])
             .concat(['--timeout', '5000']),
         version: channel,
@@ -38,4 +63,7 @@ function start() {
         process.exit(1);
     });
 }
-start();
+start().catch((ex) => {
+    console.error('End Standard tests (with errors)', ex);
+    process.exit(1);
+});

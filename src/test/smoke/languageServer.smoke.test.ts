@@ -23,6 +23,14 @@ const fileDefinitions = path.join(
     'definitions.py'
 );
 
+const notebookDefinitions = path.join(
+    EXTENSION_ROOT_DIR_FOR_TESTS,
+    'src',
+    'testMultiRootWkspc',
+    'smokeTests',
+    'definitions.ipynb'
+);
+
 suite('Smoke Test: Language Server', () => {
     suiteSetup(async function () {
         if (!IS_SMOKE_TEST) {
@@ -63,6 +71,29 @@ suite('Smoke Test: Language Server', () => {
             );
             if (locations && locations.length > 0) {
                 expect(locations![0].uri.fsPath).to.contain(path.basename(fileDefinitions));
+                tested = true;
+                break;
+            } else {
+                // Wait for LS to start.
+                await sleep(5_000);
+            }
+        }
+        if (!tested) {
+            assert.fail('Failled to test definitions');
+        }
+    });
+    test('Notebooks', async () => {
+        const startPosition = new vscode.Position(13, 6);
+        const textDocument = await openFileAndWaitForLS(notebookDefinitions, 'jupyter-notebook');
+        let tested = false;
+        for (let i = 0; i < 5; i += 1) {
+            const locations = await vscode.commands.executeCommand<vscode.Location[]>(
+                'vscode.executeDefinitionProvider',
+                textDocument.uri,
+                startPosition
+            );
+            if (locations && locations.length > 0) {
+                expect(locations![0].uri.fsPath).to.contain(path.basename(notebookDefinitions));
                 tested = true;
                 break;
             } else {

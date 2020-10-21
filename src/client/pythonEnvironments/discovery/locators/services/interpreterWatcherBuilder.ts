@@ -32,7 +32,6 @@ export class InterpreterWatcherBuilder implements IInterpreterWatcherBuilder {
         @inject(IServiceContainer) private readonly serviceContainer: IServiceContainer,
     ) {}
 
-    @traceDecorators.verbose('Build the workspace interpreter watcher')
     public async getWorkspaceVirtualEnvInterpreterWatcher(resource: Uri | undefined): Promise<IInterpreterWatcher> {
         const key = this.getResourceKey(resource);
         if (!this.watchersByResource.has(key)) {

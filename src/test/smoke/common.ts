@@ -41,8 +41,13 @@ export async function enableJedi(enable: boolean | undefined) {
     }
     await updateSetting('languageServer', 'Jedi');
 }
-export async function openFileAndWaitForLS(file: string): Promise<vscode.TextDocument> {
-    const textDocument = await vscode.workspace.openTextDocument(file);
+export async function openFileAndWaitForLS(file: string, viewType?: string): Promise<vscode.TextDocument> {
+    const textDocument: vscode.TextDocument | undefined = viewType
+        ? await vscode.commands.executeCommand('vscode.openWith', file, viewType)
+        : await vscode.workspace.openTextDocument(file);
+    if (!textDocument) {
+        throw new Error(`Cannot open ${file}`);
+    }
     await vscode.window.showTextDocument(textDocument);
     assert(vscode.window.activeTextEditor, 'No active editor');
     // Make sure LS completes file loading and analysis.
@@ -57,3 +62,4 @@ export async function openFileAndWaitForLS(file: string): Promise<vscode.TextDoc
     await sleep(10_000);
     return textDocument;
 }
+
